@@ -15,8 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef LATMRG_SEEKMWC_H
-#define LATMRG_SEEKMWC_H
+#ifndef LATMRG_SEARCHMWC_H
+#define LATMRG_SEARCHMWC_H
 
 #include <cassert>
 #include <iostream>
@@ -24,7 +24,7 @@
 #include <memory>
 
 #include "latmrg/PrimesFinder.h"
-#include "latmrg/ConfigSeek.h"
+#include "latmrg/ConfigSearchBase.h"
 #include "latmrg/FigureOfMeritData.h"
 #include "latticetester/FigureOfMeritM.h"
 #include "latticetester/FigureOfMeritDualM.h"
@@ -40,10 +40,10 @@
 namespace LatMRG {
 
   /**
-  * \class SeekMWC
+  * \class SearchMWC
   * 
   * This class implements the search procedure for MWC lattices. 
-  * It derives from the abstract class Seek and provides the 
+  * It derives from the abstract class Search and provides the 
   * lattice-specific implementation of the next generator methods 
   * required during the search. This class only defines how MRG 
   * candidate generators are created. 
@@ -55,18 +55,18 @@ namespace LatMRG {
   * randomly selecting the multiplier coefficients according to the bit-size
   * restrictions and configuration parameters. 
   *
-  * The constructor is inherited from Seek. It initializes the search using a
-  * ConfigSeek object, which specifies the modulus parameters, recurrence
+  * The constructor is inherited from Search. It initializes the search using a
+  * ConfigSearch object, which specifies the modulus parameters, recurrence
   * order, admissible coefficient ranges, search limits, and the
   * figure-of-merit configuration.
  */
 
     template<typename Int, typename Real>
-    class SeekMWC: public Seek<MWCLattice<Int, Real>> {
+    class SearchMWC: public Search<MWCLattice<Int, Real>> {
 
         public:
 
-        using Seek<MWCLattice<Int, Real>>::Seek;
+        using Search<MWCLattice<Int, Real>>::Search;
 
         MWCLattice<Int, Real>* nextGenerator() override;
 
@@ -167,7 +167,7 @@ namespace LatMRG {
   * coefficient values within the prescribed ranges. The resulting coefficients 
   * are then used to construct the associated MWC lattice.
   */
-  template<typename Int, typename Real> MWCLattice<Int, Real>* SeekMWC<Int, Real>::nextGenerator()   {
+  template<typename Int, typename Real> MWCLattice<Int, Real>* SearchMWC<Int, Real>::nextGenerator()   {
     auto* comp = this->conf.genComponents[0];
     
     Int range, val;
@@ -203,9 +203,9 @@ namespace LatMRG {
   * nextGeneratorRandom() generates admissible MWC generators by randomly 
   * selecting the multiplier coefficients according to the bit-size restrictions
   * and configuration parameters. It provides the random search analagoue of 
-  * nextGenerator() and can be used by performSeek() when a stochastic search.
+  * nextGenerator() and can be used by performSearch() when a stochastic search.
   */
-  template<typename Int, typename Real> MWCLattice<Int, Real>* SeekMWC<Int, Real>::nextGeneratorRandom() {
+  template<typename Int, typename Real> MWCLattice<Int, Real>* SearchMWC<Int, Real>::nextGeneratorRandom() {
     auto* comp = this->conf.genComponents[0];
     int k = comp->getOrder();
     NTL::Vec<NTL::ZZ> aa;
@@ -242,7 +242,7 @@ namespace LatMRG {
   * This method checks whether the generated lattice satisfies the
   * maximal-period requirement for an MWC lattice.
   */
-  template<typename Int, typename Real> bool SeekMWC<Int, Real>::checkMaxPeriod(MWCLattice<Int, Real>& lat) {
+  template<typename Int, typename Real> bool SearchMWC<Int, Real>::checkMaxPeriod(MWCLattice<Int, Real>& lat) {
     return mIsSafePrime(lat.getModulus(), 100) && maxPeriodHalfMWC(lat.getModulus(), this->conf.genComponents[0]->getPowMod());
  }
 

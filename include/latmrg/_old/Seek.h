@@ -26,7 +26,7 @@
 #include <functional>
 
 #include "latmrg/PrimesFinder.h"
-#include "latmrg/ConfigSeek.h"
+#include "latmrg/ConfigSearchBase.h"
 #include "latmrg/FigureOfMeritData.h"
 #include "latticetester/FigureOfMeritM.h"
 #include "latticetester/FigureOfMeritDualM.h"
@@ -53,7 +53,7 @@ namespace LatMRG {
  * either for the primal or the dual lattice. The best generators
  * encountered during the search are retained throughout the execution.
  *
- * The constructor initializes the search from a ConfigSeek object.
+ * The constructor initializes the search from a ConfigSearch object.
  * In particular, it stores the search configuration, constructs the
  * required figure of merit objects, and initializes the auxiliary
  * objects needed during the search.
@@ -87,9 +87,9 @@ namespace LatMRG {
 
     
    /**
-   * Initialization of objects is based on the ConfigSeek parameter.
+   * Initialization of objects is based on the ConfigSearch parameter.
    */
-   Seek(const ConfigSeek<Int, Real>& config) : conf(config) 
+   Seek(ConfigSearch<Int, Real>& config) : conf(config)
                                         , bestLattices(conf.configFOM.no_bestGen, conf.configFOM.best) 
                                         , fomPrimal(config.configFOM.t, *config.configFOM.weights, *config.configFOM.norma, config.configFOM.red, config.configFOM.includeFirst)
                                         , fomDual(config.configFOM.t, *config.configFOM.weights, *config.configFOM.norma, config.configFOM.red, config.configFOM.includeFirst)
@@ -153,7 +153,7 @@ namespace LatMRG {
     /**
     * The configuration for the seek.
     */
-    ConfigSeek<Int, Real> conf;
+    ConfigSearch<Int, Real> & conf;
     
     /**
     * Counter for the current RNG.
@@ -240,21 +240,25 @@ namespace LatMRG {
    * to which additional information can be added later.
   */
   template<typename Lat> void Seek<Lat>::printResults() {
+    
     *out << "\nSeek: A search program for Random Number Generators\n";
     *out << ((conf.numComp>1)?"Combined generators":"Simple generator")
       << " configuration" << ((conf.numComp>1)?"s":"") << "\n\n";
+
+      
+    
     for (int k = 0; k < conf.numComp; k++) {
       if (k > 0) *out << "\n";
       if (conf.numComp >1) *out << "Component " << k+1 << ":\n";
       *out << "Generator type: " << toStringGenType(conf.genType) << "\n";
       if (conf.genType == MRG) {
-        *out << "Modulo:         m = " << conf.genComponents[k]->getModulus(); //" = " << conf.genComponents[k]->getB() << "^"
+        *out << "Modulo:         m = " << conf.getComponentModulus(k); //" = " << conf.genComponents[k]->getB() << "^"
           //<< conf.fact[k]->getE();
         // if (conf.fact[k]->getR() > 0) *out << "+" << conf.genComponents[k]->getR();
         // if (conf.fact[k]->getR() < 0) *out << conf.genComponents[k]->getR();
 
         *out << "\n";
-        *out << "Order:          k = " << conf.genComponents[k]->getOrder() << "\n";
+        *out << "Order:          k = " << conf.getComponentOrder(k) << "\n";
       } else if (conf.genType == MWC) {
       } else if (conf.genType == MMRG) {
       }
@@ -278,6 +282,8 @@ namespace LatMRG {
       *out << (*it).getBasis() << "\n";
       *out << (*it).toStringMerit() << "\n";
     }
+    
+  
   }
 
   //===========================================================================
@@ -288,7 +294,7 @@ namespace LatMRG {
   * a random or an exhaustive search.
   */
   template<typename Lat> template<typename Generator> int Seek<Lat>::performSeek(Lat* (Generator::*generator)())  {  
-    assert(!conf.genComponents.empty());  
+    assert(conf.numComp > 0);
     int old = 0;
     // Launching the tests
     if (conf.progress) {

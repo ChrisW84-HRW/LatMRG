@@ -15,8 +15,8 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef LATMRG_SEEKMRG_H
-#define LATMRG_SEEKMRG_H
+#ifndef LATMRG_SEEKCOMBINEDMRG_H
+#define LATMRG_SEEKCOMBINEDMRG_H
 
 #include <cassert>
 #include <iostream>
@@ -24,7 +24,8 @@
 #include <memory>
 
 #include "latmrg/PrimesFinder.h"
-#include "latmrg/ConfigSeek.h"
+#include "latmrg/ConfigSearchBase.h"
+#include "latmrg/ConfigSearchCombinedMRG.h"
 #include "latmrg/FigureOfMeritData.h"
 #include "latticetester/FigureOfMeritM.h"
 #include "latticetester/FigureOfMeritDualM.h"
@@ -41,7 +42,7 @@
 namespace LatMRG {
 
   /**
-  * \class SeekMRG
+  * \class SeekCombinedMRG
   *
   * This class implements the search procedure for MRG lattices. 
   * It derives from the abstract class Seek and provides the 
@@ -57,19 +58,20 @@ namespace LatMRG {
   * in the configuration. 
   *
   * The constructor is mainly inherited from Seek. It initializes the search using a
-  * ConfigSeek object, which specifies the modulus, recurrence order,
+  * ConfigSearch object, which specifies the modulus, recurrence order,
   * admissible coefficient ranges, search limits, and the figure-of-merit
   * configuration.
   */
 
     template<typename Int, typename Real>
-    class SeekMRG: public Seek<MRGLattice<Int, Real>> {
+    class SeekCombinedMRG: public Seek<MRGLattice<Int, Real>> {
 
         public:
 
-        SeekMRG(const ConfigSeek<Int, Real>& config)
+        SeekCombinedMRG(ConfigSearchCombinedMRG<Int, Real>& config)        
         : Seek<MRGLattice<Int, Real>>(config),
-          mrg(config.genComponents[0]->getModulus(), config.genComponents[0]->getOrder())
+          mrgConf(config),
+          mrg(config.genComponents[0].getModulus(), config.genComponents[0].getOrder())
         {
         }
 
@@ -80,7 +82,9 @@ namespace LatMRG {
         bool checkMaxPeriod(MRGLattice<Int, Real>& lat) override;
 
         private:
-         
+
+        ConfigSearchCombinedMRG<Int, Real>& mrgConf;
+
         /**
         * Object for creating an MRG lattice
         */
@@ -100,29 +104,29 @@ namespace LatMRG {
   * coefficients is used to construct an MRG lattice that is subsequently analyzed 
   * by the search procedure defined in the base class.
   */
-  template<typename Int, typename Real> MRGLattice<Int, Real>* SeekMRG<Int, Real>::nextGenerator()
+  template<typename Int, typename Real> MRGLattice<Int, Real>* SeekCombinedMRG<Int, Real>::nextGenerator()
   {
-    auto* comp = this->conf.genComponents[0];
+    const auto& comp = mrgConf.genComponents[0];
 
     Int range, val;
     Int tmp = NTL::to_ZZ(this->currentGen);
 
-    int k = comp->getOrder();
+    int k = comp.getOrder();
     NTL::Vec<NTL::ZZ> aa;
     aa.SetLength(k + 1);
 
     // decode currentGen into multi-index
     for (int i = 1; i <= k; i++) {
-      range = comp->getHighBoundary(i) - comp->getLowBoundary(i) + 1;
+      range = comp.getHighBoundary(i) - comp.getLowBoundary(i) + 1;
       val = tmp % range;
       tmp /= range;
-      aa[i] = comp->getLowBoundary(i) + val;
+      aa[i] = comp.getLowBoundary(i) + val;
     }
     
-    if (this->currentGen < this->conf.max_gen && this->currentGen < comp->getNoMultipliers())
+    if (this->currentGen < this->conf.max_gen && this->currentGen < comp.getNoMultipliers())
     {
       ++this->currentGen;
-      return new MRGLattice<Int, Real>(comp->getModulus(), aa, this->conf.maxdim);
+      return new MRGLattice<Int, Real>(comp.getModulus(), aa, this->conf.maxdim);
     }
     // Otherwise return null pointer
     return nullptr;
@@ -136,21 +140,21 @@ namespace LatMRG {
   * It provides the random search analagoue of nextGenerator() and can be used by 
   * performSeek() when a stochastic search.
   */
-  template<typename Int, typename Real> MRGLattice<Int, Real>* SeekMRG<Int, Real>::nextGeneratorRandom()
+  template<typename Int, typename Real> MRGLattice<Int, Real>* SeekCombinedMRG<Int, Real>::nextGeneratorRandom()
   {
-    const auto* comp = this->conf.genComponents[0];
-    const int k = comp->getOrder();
+    const auto& comp = mrgConf.genComponents[0];
+    const int k = comp.getOrder();
     NTL::Vec<NTL::ZZ> aa;
     aa.SetLength(k + 1);
 
     for (int i = 1; i <= k; i++) {
-      aa[i] = randInt(comp->getLowBoundary(i), comp->getHighBoundary(i));
+      aa[i] = randInt(comp.getLowBoundary(i), comp.getHighBoundary(i));
     }
 
     if (this->currentGen < this->conf.max_gen)
     {
       ++this->currentGen;
-      return new MRGLattice<Int, Real>(comp->getModulus(), aa, this->conf.maxdim);
+      return new MRGLattice<Int, Real>(comp.getModulus(), aa, this->conf.maxdim);
     }
 
     return nullptr;
@@ -162,7 +166,7 @@ namespace LatMRG {
   * This method checks whether the generated lattice satisfies the
   * maximal-period requirement for an MRG.
   */
-  template<typename Int, typename Real> bool SeekMRG<Int, Real>::checkMaxPeriod(MRGLattice<Int, Real>& lat)
+  template<typename Int, typename Real> bool SeekCombinedMRG<Int, Real>::checkMaxPeriod(MRGLattice<Int, Real>& lat)
   {
      return mrg.maxPeriod(lat.getaa());
   }

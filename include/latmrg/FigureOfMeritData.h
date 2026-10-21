@@ -149,6 +149,14 @@ class MeritList{
                       : m_tests.back().getMerit();
       }
 
+    bool full() const {return m_tests.size() >= m_max;}
+
+    void addWithoutMerit(FigureOfMeritData<Lat> test) {
+      if (full())
+        return;
+      m_tests.push_back(test);
+    }
+
 
       private:
 

@@ -47,7 +47,7 @@ int main() {
   
   // Define all the necessary details of the configuration
   ConfigSeek<Int, Real>* conf = new ConfigSeek<Int, Real>;
-  conf->maxdim = maxdim;
+  conf->maxdim = maxdim; 
   conf->configFOM.norma =  new NormaBestLat(log(m), 1, 16);
   conf->configFOM.red =  new ReducerBB<Int, Real>(maxdim);
   conf->configFOM.weights =  new WeightsUniform(1.0);
