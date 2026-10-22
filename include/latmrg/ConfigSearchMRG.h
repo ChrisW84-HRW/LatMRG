@@ -103,8 +103,8 @@ struct ConfigSearchMRG : public ConfigSearch<Int, Real>
     }
     long getNumRandomRegions() {return numRandomRegions;}
     void setNumRandomRegions(long value) {numRandomRegions = value;}    
-    IntVec getSubRegionSize() {return subregionSize;}
-    void setSubRegionsSize(IntVec value) {subregionSize = value;}
+    Int getSubregionSize(int i) const {return subregionSize[i];}
+    void setSubregionSize(IntVec value) {subregionSize = value;}
     // There is only a single component
     Int getComponentModulus(int k = 0) const override {return getModulus();}
     long getComponentOrder(int k = 0) const override {return getOrder();}

@@ -299,7 +299,7 @@ static bool isPrimitive23(typename FlexModInt<Int>::PolX &f, const Int &m,
    return false;
 
    // Test Condition 2
-   std::cout << "Testing Condition 2 \n";
+   // std::cout << "Testing Condition 2 \n";
    Int r0;
    r0 = fr.getNumber();
    typename FlexModInt<Int>::PolX Q;
@@ -312,7 +312,7 @@ static bool isPrimitive23(typename FlexModInt<Int>::PolX &f, const Int &m,
    if (rep(ConstTerm(Q)) != T1) return false;
 
    // Test Condition 3
-   std::cout << "Testing Condition 3 \n";
+   // std::cout << "Testing Condition 3 \n";
    if (fr.getNumberStatus() <= 1) return true;  // Prime or prob. prime.
    std::vector<Int> invFactorList = fr.getInvFactorList();
    assert(!invFactorList.empty());

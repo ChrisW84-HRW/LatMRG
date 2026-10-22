@@ -50,7 +50,7 @@ namespace LatMRG {
   * required during the search. This class only defines how MRG 
   * candidate generators are created. 
   *
-  * The method nextGenerator() performs an exhaustive enumeration of the
+  * The method nextGeneratorExhaustive() performs an exhaustive enumeration of the
   * admissible MRG generators defined by the configuration. 
   *
   * The method nextGeneratorRandom() generates admissible MRG generators by
@@ -75,13 +75,21 @@ namespace LatMRG {
         {
         }
 
-        MRGLattice<Int, Real>* nextGenerator() override;
+        MRGLattice<Int, Real>* nextGeneratorExhaustive() override;
 
         MRGLattice<Int, Real>* nextGeneratorRandom() override;
 
         MRGLattice<Int, Real>* nextGeneratorRandomBox();
 
         bool checkMaxPeriod(MRGLattice<Int, Real>& lat) override;
+
+        void resetGeneratorState() override{
+          currentRandomRegion = 0;
+          currentSubIndex = 0;
+          hasLastAk = false;
+          lastMaxPeriodResult = false;
+          alpha.SetLength(0);
+        }
 
         private:
 
@@ -95,13 +103,12 @@ namespace LatMRG {
         /*
         * Helper variables for box search -- maybe need to be initalized
         */
-        long currentRandomRegion;
-        Int currentSubIndex;
-        Int currentSubregionTotal;
-        IntVec alpha;
-        bool hasLastMaxPeriodTest;
-        NTL::Vec<NTL::ZZ> lastAA;
-        bool lastMaxPeriodResult;
+       long currentRandomRegion = 0;
+       Int currentSubIndex = Int(0);
+       IntVec alpha;
+       bool hasLastAk = false;
+       NTL::ZZ lastAk;
+       bool lastMaxPeriodResult = false;
 
     };
 
@@ -110,16 +117,16 @@ namespace LatMRG {
 
 
  /**
-  * nextGenerator() performs an exhaustive enumeration of the admissible MRG 
+  * nextGeneratorExhaustive() performs an exhaustive enumeration of the admissible MRG 
   * generators defined by the configuration. The coefficients of the recurrence 
   * are obtained by decoding the current generator index into the corresponding 
   * multiplier values within the prescribed ranges. Each admissible set of 
   * coefficients is used to construct an MRG lattice that is subsequently analyzed 
   * by the search procedure defined in the base class.
-  * If the search is restricted to generators with maximal period, then nextGenerator()
+  * If the search is restricted to generators with maximal period, then nextGeneratorExhaustive()
   * gives the next generator with this property (otherwise they are skipped).
   */
-  template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real>::nextGenerator()
+  template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real>::nextGeneratorExhaustive()
   {
     const int k = mrgConf.getOrder();    
     Int range, val;
@@ -140,8 +147,6 @@ namespace LatMRG {
         }
         ++this->currentGen;
         
-        // Preparation for being able to check primitivity -- only necessary once for MRGs but important to update for MWCs
-        setModulusIntP<Int>(mrgConf.getModulus());
         if (this->conf.onlyMaxPeriod() && !mrg.maxPeriod(aa)) {continue;}
 
         return new MRGLattice<Int, Real>(mrgConf.getModulus(), aa, this->conf.maxdim);
@@ -153,7 +158,7 @@ namespace LatMRG {
   /**
   * nextGeneratorRandom() generates admissible MRG generators by randomly selecting 
   * the recurrence coefficients within the ranges specified in the configuration. 
-  * It provides the random search analagoue of nextGenerator() and can be used by 
+  * It provides the random search analagoue of nextGeneratorExhaustive() and can be used by 
   * performSearch() when a stochastic search. 
   * If the search is restricted to generators with maximal period, then 
   * nextGeneratorRandom() only yields generators having this property.
@@ -168,8 +173,6 @@ namespace LatMRG {
     {
         for (int i = 1; i <= k; i++) aa[i] = randInt(mrgConf.getLowBoundary(i),  mrgConf.getHighBoundary(i));
         ++this->currentGen;
-        // Preparation for being able to check primitivity -- not really necessary for MRGs but important for MWCs
-        setModulusIntP<Int>(mrgConf.getModulus());
         if (this->conf.onlyMaxPeriod() && !mrg.maxPeriod(aa))  continue;
 
         return new MRGLattice<Int, Real>(mrgConf.getModulus(), aa, this->conf.maxdim);
@@ -185,22 +188,77 @@ namespace LatMRG {
   template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real>::nextGeneratorRandomBox()
   {
     const int k = mrgConf.getOrder();
+    Int subregionTotal(1);
+    Int akStepSize(1);
+    
     NTL::Vec<NTL::ZZ> aa;
     aa.SetLength(k + 1);
+    alpha.SetLength(k + 1);
 
-    while (this->currentGen < this->conf.max_gen)
+    // Calculate subregion size
+    for (int i = 1; i <= k; i++) {
+       Int hi = mrgConf.getSubregionSize(i);
+        subregionTotal *= hi;
+        if (i < k) akStepSize *= hi;
+    }
+
+    while (this->currentGen < this->conf.max_gen &&
+           currentRandomRegion < mrgConf.getNumRandomRegions())
     {
-        for (int i = 1; i <= k; i++) aa[i] = randInt(mrgConf.getLowBoundary(i),  mrgConf.getHighBoundary(i));
+        // If the current box is exhausted, move to the next random box.
+        if (currentSubIndex >= subregionTotal) {
+            ++currentRandomRegion;
+            currentSubIndex = 0;
+            hasLastAk = false;
+            continue;
+        }
+
+        // Draw a new random box.
+        if (currentSubIndex == 0) {
+            for (int i = 1; i <= k; i++) {
+                alpha[i] = randInt(mrgConf.getLowBoundary(i), mrgConf.getHighBoundary(i) - mrgConf.getSubregionSize(i) + 1);
+            }
+            hasLastAk = false;
+        }
+
+        // Decode currentSubIndex into a vector inside the current box.
+        Int tmp = currentSubIndex;
+        Int offset;
+        Int offsetK(0);
+        for (int i = 1; i <= k; i++) {
+            Int hi = mrgConf.getSubregionSize(i);
+            offset = tmp % hi;
+            tmp /= hi;
+            aa[i] = alpha[i] + offset;
+            // Save what is the current offset in the last variable
+            if (i == k) offsetK = offset;
+        }
+        
         ++this->currentGen;
-        // Preparation for being able to check primitivity -- not really necessary for MRGs but important for MWCs
-        setModulusIntP<Int>(mrgConf.getModulus());
-        if (this->conf.onlyMaxPeriod() && !mrg.maxPeriod(aa))  continue;
+        // Check maximal period only when a_k has changed.
+        if (this->conf.onlyMaxPeriod()) {
+            bool akChanged = !hasLastAk || aa[k] != lastAk;
+            if (akChanged) {
+                setModulusIntP<Int>(mrgConf.getModulus());
+                lastMaxPeriodResult = mrg.maxPeriod(aa);
+                lastAk = aa[k];
+                hasLastAk = true;
+            }
+            // If this a_k fails, skip all remaining vectors with this a_k.
+            if (!lastMaxPeriodResult) {
+                // This ensures that we jump to the next value of a_k while 
+                // but do not skip any other points in the box
+                currentSubIndex = (offsetK + 1) * akStepSize;
+                continue;
+            }
+        }
+        ++currentSubIndex;
 
         return new MRGLattice<Int, Real>(mrgConf.getModulus(), aa, this->conf.maxdim);
     }
-    return nullptr;
-  }
 
+    return nullptr;
+}
   /**
   * This method checks whether the generated lattice satisfies the
   * maximal-period requirement for an MRG.

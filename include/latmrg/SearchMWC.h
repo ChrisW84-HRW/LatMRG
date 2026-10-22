@@ -48,7 +48,7 @@ namespace LatMRG {
   * required during the search. This class only defines how MRG 
   * candidate generators are created. 
   *
-  * The method nextGenerator() performs an exhaustive enumeration of the
+  * The method nextGeneratorExhaustive() performs an exhaustive enumeration of the
   * admissible MWC generators defined by the configuration. 
   *
   * The method nextGeneratorRandom() generates admissible MWC generators by
@@ -68,7 +68,7 @@ namespace LatMRG {
 
         using Search<MWCLattice<Int, Real>>::Search;
 
-        MWCLattice<Int, Real>* nextGenerator() override;
+        MWCLattice<Int, Real>* nextGeneratorExhaustive() override;
 
         MWCLattice<Int, Real>* nextGeneratorRandom() override;
         
@@ -161,13 +161,13 @@ namespace LatMRG {
 // Implementation
 
   /**
-  * nextGenerator() performs an exhaustive enumeration of the admissible MWC 
+  * nextGeneratorExhaustive() performs an exhaustive enumeration of the admissible MWC 
   * generators defined by the configuration. The multiplier coefficients are 
   * obtained by decoding the current generator index into the corresponding 
   * coefficient values within the prescribed ranges. The resulting coefficients 
   * are then used to construct the associated MWC lattice.
   */
-  template<typename Int, typename Real> MWCLattice<Int, Real>* SearchMWC<Int, Real>::nextGenerator()   {
+  template<typename Int, typename Real> MWCLattice<Int, Real>* SearchMWC<Int, Real>::nextGeneratorExhaustive()   {
     auto* comp = this->conf.genComponents[0];
     
     Int range, val;
@@ -203,7 +203,7 @@ namespace LatMRG {
   * nextGeneratorRandom() generates admissible MWC generators by randomly 
   * selecting the multiplier coefficients according to the bit-size restrictions
   * and configuration parameters. It provides the random search analagoue of 
-  * nextGenerator() and can be used by performSearch() when a stochastic search.
+  * nextGeneratorExhaustive() and can be used by performSearch() when a stochastic search.
   */
   template<typename Int, typename Real> MWCLattice<Int, Real>* SearchMWC<Int, Real>::nextGeneratorRandom() {
     auto* comp = this->conf.genComponents[0];

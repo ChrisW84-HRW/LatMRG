@@ -66,7 +66,7 @@ namespace LatMRG {
  * use either exhaustive enumeration or random generation while keeping
  * the search algorithm independent of the lattice type.
  *
- * The methods nextGenerator() and nextGeneratorRandom() define how
+ * The methods nextGeneratorExhaustive() and nextGeneratorRandom() define how
  * candidate generators are produced. The former performs an exhaustive
  * enumeration of the admissible generator space defined by the
  * configuration, whereas the latter generates candidates randomly within
@@ -78,6 +78,11 @@ namespace LatMRG {
  * admissible candidate lattices, while the common search logic, including
  * merit computation, period checking, ranking, and progress reporting,
  * is implemented in this class.
+ * 
+ * The template parameter Lat is needed because the common search procedure 
+ * is independent of the concrete lattice type and the same Search algorithm 
+ * should work for different lattice types. Thus, the base class can use the 
+ * correct lattice type in a safe way.
  */
 
   template<typename Lat> class Search {
@@ -117,18 +122,31 @@ namespace LatMRG {
    * nextGenerator() is performing an exhaustive search. This method needs to
    * be implemented separately for the different types of lattices.
    */
-   virtual Lat* nextGenerator() = 0;
+   virtual Lat* nextGeneratorExhaustive() = 0;
 
    /**
-   * As nextGenerator() but it chooses a random next generator which is within
+   * As nextGeneratorExhaustive() but it chooses a random next generator which is within
    * the range defined by the configuration.
    */
-   virtual Lat* nextGeneratorRandom() = 0;   
+   virtual Lat* nextGeneratorRandom() = 0;  
+   
+   /**
+   * Resets generator type specific search state before a new search is started.
+   *
+   * The base implementation does nothing. Subclasses override this method
+   * to reset state variables used by their generator routines, such as
+   * enumeration counters.
+   */
+   virtual void resetGeneratorState() {}
 
    /**
    * This method performs the search based on the current configuration.
    * The parameter *generator defines the method of the search, e.g.,
    * a random or an exhaustive search.
+   * The extra template parameter Generator allows to pass a pointer to a member function 
+   * of the derived class, for example SearchMRG::nextGeneratorRandomBox, without hard-coding 
+   * the derived type in the base class. Thus the base algorithm remains generic and reusable, 
+   * while the generator-specific enumeration logic stays in the subclasses.
    */
    template<typename Generator> int performSearch(Lat* (Generator::*generator)());
    
@@ -149,6 +167,12 @@ namespace LatMRG {
     * should only be called after PerformSearch() has been executed. 
     */
     void printResults();
+
+    /**
+    * Returns the merit of the best retained lattice.
+    * Returns NaN if no lattice has been retained.
+    */
+    double getBestMerit();
 
     /**
     * The configuration for the search.
@@ -302,12 +326,17 @@ namespace LatMRG {
       old = printProgress(-1);
     }
     timer.init();
+
+    currentGen = 0;
+    resetGeneratorState();
     
     IntLattice<Int, Real> proj(conf.getModulus(), conf.configFOM.t.length(), conf.configFOM.norm);    
     FigureOfMeritData<Lat> fomData;
     // Variable which depends on whether the FoM is calculated for the primal / dual lattice.
     // Avoids duplicate code.
-    auto& fom = conf.configFOM.dualLattice ? fomDual : fomPrimal;       
+    auto& fom = conf.configFOM.dualLattice ? fomDual : fomPrimal;    
+    
+    setModulusIntP<Int>(conf.getModulus());   
 
     // Loop through all lattices
     do {      
@@ -321,7 +350,9 @@ namespace LatMRG {
        * maximal period to the list.
       */
       if (conf.getCalculateFOM()) { 
-        fomData.setMerit(fom.computeMerit(*lat, proj));        
+        fomData.setMerit(fom.computeMerit(*lat, proj));  
+        if (conf.configFOM.dualLattice) lat->buildDualBasis(conf.maxdim);
+        else lat->buildBasis(conf.maxdim);      
         fomData.setBasis(conf.configFOM.dualLattice ? lat->getDualBasis() : lat->getBasis());
         fomData.setMeritProj(fom.getMinMeritProj());
         fomData.setMeritSqlen(fom.getMinMeritSqlen());
@@ -333,8 +364,8 @@ namespace LatMRG {
       else {
         // We need to buiild the basis for the FOM because we currently want to store it.
         // We might want to change this later.
-        if (conf.configFOM.dualLattice) lat->buildDualBasis(conf.configFOM.t[0]);
-        else lat->buildBasis(conf.configFOM.t[0]);
+        if (conf.configFOM.dualLattice) lat->buildDualBasis(conf.getMaxDim());
+        else lat->buildBasis(conf.getMaxDim());
         fomData.setBasis(conf.configFOM.dualLattice ? lat->getDualBasis() : lat->getBasis());
         bestLattices.addWithoutMerit(fomData);
           if (bestLattices.full())
@@ -346,7 +377,18 @@ namespace LatMRG {
       if (conf.progress) old = printProgress(old);
     } while (!timer.timeOver(conf.timeLimit) && lat);
     old = printProgress(old);
+    std::cout << "\n \n \n !!! END !!! \n \n \n";
+    std::cout << "CurrentGen: " << currentGen;
+    std::cout << "\n \n \n !!! END !!! \n \n \n";
     return 0;
+  }
+
+  template<typename Lat> double Search<Lat>::getBestMerit()
+  {
+    auto& list = bestLattices.getList();
+    if (list.empty())
+        return std::numeric_limits<double>::quiet_NaN();
+    return list.front().getMerit();
   }
 
 }// End namespace LatMRG
