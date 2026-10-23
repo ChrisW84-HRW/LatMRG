@@ -56,6 +56,10 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
                        // Default is false
     long numRandomRegions = 1;   // for search of random boxes (cooresponds to N_r in the guide)
     IntVec subregionSize;        // the allowed sizes of the boxes h_i, indexed from 1 to k
+    int numRandomPointsPerAk = 1;
+    int numRandomAk = 1;
+
+    bool countBadAk = false;
                        
     // Get and set methods
     Int getModulus() const {return modulus;}
@@ -106,6 +110,12 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     void setNumRandomRegions(long value) {numRandomRegions = value;}    
     Int getSubregionSize(int i) const {return subregionSize[i];}
     void setSubregionSize(IntVec value) {subregionSize = value;}
+    void setNumRandomPointsPerAk(int value) {numRandomPointsPerAk = value;}
+    int getNumRandomPointsPerAk() const {return numRandomPointsPerAk;}
+    void setNumRandomAk(int value) {numRandomAk = value;}
+    int getNumRandomAk() const {return numRandomAk;}
+    bool getCountBadAk() const {return countBadAk;};
+    void setCountBadAk(bool value) {countBadAk = value;}
     // There is only a single component
     Int getComponentModulus(int k = 0) const override {return getModulus();}
     long getComponentOrder(int k = 0) const override {return getOrder();}
@@ -116,7 +126,10 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     MRGLattice<Int, Real>* nextGeneratorRandom() override;
 
     MRGLattice<Int, Real>* nextGeneratorRandomBox();
+    
+    MRGLattice<Int, Real>* nextGeneratorRandomAkFixed();
 
+    MRGLattice<Int, Real>* nextGeneratorRandomAkFixedBox();
     bool checkMaxPeriod(MRGLattice<Int, Real>& lat) override;
 
     void resetGeneratorState() override{
@@ -126,6 +139,9 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
         lastMaxPeriodResult = false;
         alpha.SetLength(0);
         mrg.reset();
+        currentAkTrial = 0;
+        currentAkSample = 0;
+        hasCurrentAk = false;
     }
 
     private:
@@ -154,6 +170,11 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     bool hasLastAk = false;
     NTL::ZZ lastAk;
     bool lastMaxPeriodResult = false;
+
+    long currentAkTrial = 0;
+    long currentAkSample = 0;
+    bool hasCurrentAk = false;
+    NTL::ZZ currentAk;
     
 };
 
@@ -172,18 +193,17 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
   * gives the next generator with this property (otherwise they are skipped).
   */
   template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real>::nextGeneratorExhaustive()
-  {
-    const int k = getOrder();    
+  {    
     Int range, val;
     Int tmp;
     NTL::Vec<NTL::ZZ> aa;
-    aa.SetLength(k + 1);
+    aa.SetLength(getOrder() + 1);
     while (this->currentGen < this->getMaxGen() &&
            this->currentGen < getNoMultipliers())
     {
         // Set the vector of multipliers for the next generator
         tmp = NTL::to_ZZ(this->currentGen);
-        for (int i = 1; i <= k; i++) {
+        for (int i = 1; i <= getOrder(); i++) {
             range = getHighBoundary(i) - getLowBoundary(i) + 1;
             val = tmp % range;
             tmp /= range;
@@ -210,13 +230,12 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
   template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real>::nextGeneratorRandom()
   {
     
-    const int k = getOrder();
     NTL::Vec<NTL::ZZ> aa;
-    aa.SetLength(k + 1);
+    aa.SetLength(getOrder() + 1);
 
     while (this->currentGen < this->getMaxGen())
     {
-        for (int i = 1; i <= k; i++) aa[i] = randInt(getLowBoundary(i),  getHighBoundary(i));
+        for (int i = 1; i <= getOrder(); i++) aa[i] = randInt(getLowBoundary(i),  getHighBoundary(i));
         ++this->currentGen;
         if (this->onlyMaxPeriod() && !getMRGComponent().maxPeriod(aa))  continue;
 
@@ -232,19 +251,18 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
   */
   template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real>::nextGeneratorRandomBox()
   {
-    const int k = getOrder();
     Int subregionTotal(1);
     Int akStepSize(1);
     
     NTL::Vec<NTL::ZZ> aa;
-    aa.SetLength(k + 1);
-    alpha.SetLength(k + 1);
+    aa.SetLength(getOrder() + 1);
+    alpha.SetLength(getOrder() + 1);
 
     // Calculate subregion size
-    for (int i = 1; i <= k; i++) {
+    for (int i = 1; i <= getOrder(); i++) {
        Int hi = getSubregionSize(i);
         subregionTotal *= hi;
-        if (i < k) akStepSize *= hi;
+        if (i < getOrder()) akStepSize *= hi;
     }
 
     while (this->currentGen < this->getMaxGen() &&
@@ -260,7 +278,7 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
 
         // Draw a new random box.
         if (currentSubIndex == 0) {
-            for (int i = 1; i <= k; i++) {
+            for (int i = 1; i <= getOrder(); i++) {
                 alpha[i] = randInt(getLowBoundary(i), getHighBoundary(i) - getSubregionSize(i) + 1);
             }
             hasLastAk = false;
@@ -270,29 +288,30 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
         Int tmp = currentSubIndex;
         Int offset;
         Int offsetK(0);
-        for (int i = 1; i <= k; i++) {
+        for (int i = 1; i <= getOrder(); i++) {
             Int hi = getSubregionSize(i);
             offset = tmp % hi;
             tmp /= hi;
             aa[i] = alpha[i] + offset;
             // Save what is the current offset in the last variable
-            if (i == k) offsetK = offset;
+            if (i == getOrder()) offsetK = offset;
         }
         
         ++this->currentGen;
         // Check maximal period only when a_k has changed.
         if (this->onlyMaxPeriod()) {
-            bool akChanged = !hasLastAk || aa[k] != lastAk;
+            bool akChanged = !hasLastAk || aa[getOrder()] != lastAk;
             if (akChanged) {
                 setModulusIntP<Int>(getModulus());
                 lastMaxPeriodResult = getMRGComponent().maxPeriod(aa);
-                lastAk = aa[k];
+                lastAk = aa[getOrder()];
                 hasLastAk = true;
             }
             // If this a_k fails, skip all remaining vectors with this a_k.
             if (!lastMaxPeriodResult) {
                 // This ensures that we jump to the next value of a_k while 
                 // but do not skip any other points in the box
+                if (!countBadAk) --this->currentGen;
                 currentSubIndex = (offsetK + 1) * akStepSize;
                 continue;
             }
@@ -302,6 +321,150 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
         return new MRGLattice<Int, Real>(getModulus(), aa, this->maxdim);
     }
     
+    return nullptr;
+}
+
+/*
+* For each good a_k, we sample N_a independent vectors for the other
+* coordinates. This is the base case, the simplest.
+*/
+template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real>::nextGeneratorRandomAkFixed()
+{  
+    NTL::Vec<NTL::ZZ> aa;
+    aa.SetLength(getOrder() + 1);
+
+    while (this->currentGen < this->getMaxGen() &&
+           currentAkTrial < getNumRandomAk())
+    {
+        /*
+         * If we do not currently have a good a_k, or if we already generated
+         * N_a vectors for the current a_k, draw a new a_k.
+         */
+        if (!hasCurrentAk || currentAkSample >= getNumRandomPointsPerAk()) {
+            hasCurrentAk = false;
+            currentAkSample = 0;
+
+            
+            for (int i = 1; i < getOrder(); i++) {
+                aa[i] = randInt(getLowBoundary(i), getHighBoundary(i));
+            }
+        
+            while (currentAkTrial < getNumRandomAk() &&
+                   this->currentGen < this->getMaxGen())
+            {
+                currentAk = randInt(getLowBoundary(getOrder()), getHighBoundary(getOrder()));
+                aa[getOrder()] = currentAk;
+                ++currentAkTrial;
+
+                /*
+                 * Check whether this a_k has maximal period.
+                 */
+                if (this->onlyMaxPeriod()) {
+                    if (!getMRGComponent().maxPeriod(aa)) {
+                        ++this->currentGen;
+                        continue;
+                    }
+                }
+                hasCurrentAk = true;
+                break;
+            }
+            if (!hasCurrentAk)
+                return nullptr;
+        }
+        ++currentAkSample;
+        ++this->currentGen;
+        return new MRGLattice<Int, Real>(getModulus(), aa, this->maxdim);
+    }
+    return nullptr;
+}
+
+template<typename Int, typename Real>
+MRGLattice<Int, Real>* SearchMRG<Int, Real>::nextGeneratorRandomAkFixedBox()
+{
+    /*
+     * h_k is assumed to be 1. Thus the box is only over the coordinates
+     * a_1, ..., a_{k-1}.
+     */
+    Int boxSize(1);
+    for (int i = 1; i < getOrder(); i++) {
+        Int hi = getSubregionSize(i);
+        boxSize *= hi;
+    }
+
+    NTL::Vec<NTL::ZZ> aa;
+    aa.SetLength(getOrder() + 1);
+
+    alpha.SetLength(getOrder() + 1);
+
+    while (this->currentGen < this->getMaxGen() &&
+           (hasCurrentAk || currentAkTrial < getNumRandomAk()))
+    {
+        /*
+         * If there is no current good a_k, or if the current box has been
+         * exhausted, draw a new a_k and a new random box for the other
+         * coordinates.
+         */
+        if (!hasCurrentAk || currentSubIndex >= boxSize) {
+            hasCurrentAk = false;
+            currentSubIndex = 0;
+
+            while (currentAkTrial < getNumRandomAk() &&
+                   this->currentGen < this->getMaxGen())
+            {
+                /*
+                 * Draw the lower corner of the box for coordinates
+                 * a_1, ..., a_{k-1}.
+                 */
+                for (int i = 1; i < getOrder(); i++) {
+                    alpha[i] = randInt(getLowBoundary(i), getHighBoundary(i) - getSubregionSize(i) + 1);
+                    aa[i] = alpha[i];
+                }
+
+                /*
+                 * Draw a_k independently.
+                 */
+                currentAk = randInt(getLowBoundary(getOrder()), getHighBoundary(getOrder()));
+                aa[getOrder()] = currentAk;
+
+                ++currentAkTrial;
+
+                /*
+                 * Check whether this a_k is good. The check is performed
+                 * only once, using the first point of the box.
+                 */
+                if (this->onlyMaxPeriod()) {
+                    if (!getMRGComponent().maxPeriod(aa)) {
+                        ++this->currentGen;
+                        continue;
+                    }
+                }
+                hasCurrentAk = true;
+                break;
+            }
+            if (!hasCurrentAk)
+                return nullptr;
+        }
+
+        /*
+         * Enumerate the current box exhaustively for a_1, ..., a_{k-1},
+         * while keeping a_k fixed.
+         */
+        Int tmp = currentSubIndex;
+
+        for (int i = 1; i < getOrder(); i++) {
+            Int hi = getSubregionSize(i);
+            Int offset = tmp % hi;
+            tmp /= hi;
+            aa[i] = alpha[i] + offset;
+        }
+        aa[getOrder()] = currentAk;
+
+        ++currentSubIndex;
+        ++this->currentGen;
+
+        return new MRGLattice<Int, Real>(getModulus(), aa, this->maxdim);
+    }
+
     return nullptr;
 }
   /**

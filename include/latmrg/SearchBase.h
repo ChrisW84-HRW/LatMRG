@@ -418,16 +418,17 @@ struct SearchBase
     
     assert(getNumComp() > 0);
     assert(getCalculateFOM() || getPermax());
+
+    currentGen = 0;
+    resetGeneratorState();
+    bestLattices = MeritList<Lat>(configFOM.no_bestGen, configFOM.best);
+
     int old = 0;
     // Launching the tests
     if (progress) {
       old = printProgress(-1);
     }
     timer.init();
-
-    currentGen = 0;
-    resetGeneratorState();
-    bestLattices = MeritList<Lat>(configFOM.no_bestGen, configFOM.best);
     
     IntLattice<Int, Real> proj(getModulus(), configFOM.t.length(), configFOM.norm);    
     FigureOfMeritData<Lat> fomData;
@@ -437,7 +438,7 @@ struct SearchBase
     // Variable which depends on whether the FoM is calculated for the primal / dual lattice.
     // Avoids duplicate code.
     
-    auto& fom = configFOM.dualLattice ? fomDual : fomPrimal;    
+    auto& fom = configFOM.dualLattice ? fomDual : fomPrimal;  
     
     setModulusIntP<Int>(getModulus());   
 
@@ -480,9 +481,9 @@ struct SearchBase
       if (progress) old = printProgress(old);
     } while (!timer.timeOver(getTimeLimit()) && lat);
     old = printProgress(old);
-    std::cout << "\n \n \n !!! END !!! \n \n \n";
-    std::cout << "CurrentGen: " << currentGen;
-    std::cout << "\n \n \n !!! END !!! \n \n \n";
+    //std::cout << "\n \n \n !!! END !!! \n \n \n";
+    //std::cout << "CurrentGen: " << currentGen;
+    //std::cout << "\n \n \n !!! END !!! \n \n \n";
     return 0;
   }
 

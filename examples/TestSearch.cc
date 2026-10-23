@@ -91,27 +91,55 @@ int main() {
   // Set paramters for box search
   searcher.setSubregionSize(h);
   searcher.setNumRandomRegions(10000);
+  searcher.setNumRandomAk(100000);
+  searcher.setNumRandomPointsPerAk(100);
+  searcher.setCountBadAk(false);
   
   searcher.setModulus(m);
   searcher.setLowBoundaries(b);
   searcher.setHighBoundaries(c);
   searcher.setOrder(b.length() - 1);
-  // Perform the actual search
+
+  // Perform the actual search  
   
-  std::clock_t startBox = std::clock();
-  searcher.performSearch(&SearchMRG<Int, Real>::nextGeneratorRandomBox);
-  std::clock_t endBox = std::clock();
-  double cpuTimeBox = double(endBox - startBox) / CLOCKS_PER_SEC;
-  std::cout << "Random box search CPU time: " << cpuTimeBox << " seconds\n";
-  std::cout << "Best merit: " << searcher.getBestMerit() << "\n";
-  // searcher.printResults();
-    
+  std::cout << "\n \n Pure random search\n";
   std::clock_t startRandom = std::clock();
   searcher.performSearch(&SearchMRG<Int, Real>::nextGeneratorRandom);
   std::clock_t endRandom = std::clock();
   double cpuTimeRandom = double(endRandom - startRandom) / CLOCKS_PER_SEC;
-  std::cout << "Random box search CPU time: " << cpuTimeRandom << " seconds\n";
+  std::cout << "Search CPU time: " << cpuTimeRandom << " seconds\n";
   std::cout << "Best merit: " << searcher.getBestMerit() << "\n";
+  
+  
+  std::cout << "\n \n Random search with Ak fixed\n";
+  std::clock_t startAk = std::clock();
+  searcher.performSearch(&SearchMRG<Int, Real>::nextGeneratorRandomAkFixed);
+  std::clock_t endAk = std::clock();
+  double cpuTimeAk = double(endAk - startAk) / CLOCKS_PER_SEC;
+  std::cout << "Search CPU time: " << cpuTimeAk << " seconds\n";
+  std::cout << "Best merit: " << searcher.getBestMerit() << "\n";
+
+  
+  std::cout << "\n \n Random search with Ak fixed + boxes \n";
+  std::clock_t startBox = std::clock();
+  searcher.performSearch(&SearchMRG<Int, Real>::nextGeneratorRandomAkFixedBox);
+  std::clock_t endBox = std::clock();
+  double cpuTimeBox = double(endBox - startBox) / CLOCKS_PER_SEC;
+  std::cout << "Search CPU time: " << cpuTimeBox << " seconds\n";
+  std::cout << "Best merit: " << searcher.getBestMerit() << "\n";
+
+  
+  std::cout << "\n \n Random search with boxes \n";
+  std::clock_t startBox2 = std::clock();
+  searcher.performSearch(&SearchMRG<Int, Real>::nextGeneratorRandomBox);
+  std::clock_t endBox2 = std::clock();
+  double cpuTimeBox2 = double(endBox2 - startBox2) / CLOCKS_PER_SEC;
+  std::cout << "Search CPU time: " << cpuTimeBox2 << " seconds\n";
+  std::cout << "Best merit: " << searcher.getBestMerit() << "\n";
+  // searcher.printResults();
+    
+  
+  
   
   return 0;
 }
