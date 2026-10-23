@@ -1,0 +1,175 @@
+// This file is part of LatMRG.
+//
+// Copyright (C) 2012-2022  The LatMRG authors, under the occasional supervision
+// of Pierre L'Ecuyer at Universit? de Montr?al.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#ifndef LATMRG_SEARCHCOMBINEDMRG_H
+#define LATMRG_SEARCHCOMBINEDMRG_H
+
+#include <cassert>
+#include <iostream>
+#include <iomanip>
+#include <memory>
+
+#include "latmrg/PrimesFinder.h"
+#include "latmrg/ConfigSearchBase.h"
+#include "latmrg/ConfigSearchCombinedMRG.h"
+#include "latmrg/FigureOfMeritData.h"
+#include "latticetester/FigureOfMeritM.h"
+#include "latticetester/FigureOfMeritDualM.h"
+#include "latticetester/ReducerBB.h"
+#include "latticetester/Weights.h"
+#include "latticetester/WeightsUniform.h"
+#include "latmrg/Search.h"
+
+#include "latmrg/LCGLattice.h"
+#include "latmrg/LCGComponent.h"
+#include "latmrg/MWCComponent.h"
+#include "latmrg/MWCLattice.h"
+
+namespace LatMRG {
+
+  /**
+  * \class SearchCombinedMRG
+  *
+  * This class implements the search procedure for MRG lattices. 
+  * It derives from the abstract class Seach and provides the 
+  * lattice-specific implementation of the next generator methods 
+  * required during the search. This class only defines how MRG 
+  * candidate generators are created. 
+  *
+  * The method nextGenerator() performs an exhaustive enumeration of the
+  * admissible MRG generators defined by the configuration. 
+  *
+  * The method nextGeneratorRandom() generates admissible MRG generators by
+  * randomly selecting the recurrence coefficients within the ranges specified
+  * in the configuration. 
+  *
+  * The constructor is mainly inherited from Search. It initializes the search using a
+  * ConfigSearch object, which specifies the modulus, recurrence order,
+  * admissible coefficient ranges, search limits, and the figure-of-merit
+  * configuration.
+  */
+
+    template<typename Int, typename Real>
+    class SearchCombinedMRG: public Search<MRGLattice<Int, Real>> {
+
+        public:
+
+        SearchCombinedMRG(ConfigSearchCombinedMRG<Int, Real>& config)        
+        : Search<MRGLattice<Int, Real>>(config),
+          mrgConf(config),
+          mrg(config.genComponents[0].getModulus(), config.genComponents[0].getOrder())
+        {
+        }
+
+        MRGLattice<Int, Real>* nextGenerator() override;
+
+        MRGLattice<Int, Real>* nextGeneratorRandom() override;
+
+        bool checkMaxPeriod(MRGLattice<Int, Real>& lat) override;
+
+        private:
+
+        ConfigSearchCombinedMRG<Int, Real>& mrgConf;
+
+        /**
+        * Object for creating an MRG lattice
+        */
+        MRGComponent<Int> mrg;
+
+    };
+
+//============================================================================
+// Implementation
+
+
+ /**
+  * nextGenerator() performs an exhaustive enumeration of the admissible MRG 
+  * generators defined by the configuration. The coefficients of the recurrence 
+  * are obtained by decoding the current generator index into the corresponding 
+  * multiplier values within the prescribed ranges. Each admissible set of 
+  * coefficients is used to construct an MRG lattice that is subsequently analyzed 
+  * by the search procedure defined in the base class.
+  */
+  template<typename Int, typename Real> MRGLattice<Int, Real>* SearchCombinedMRG<Int, Real>::nextGenerator()
+  {
+    const auto& comp = mrgConf.genComponents[0];
+
+    Int range, val;
+    Int tmp = NTL::to_ZZ(this->currentGen);
+
+    int k = comp.getOrder();
+    NTL::Vec<NTL::ZZ> aa;
+    aa.SetLength(k + 1);
+
+    // decode currentGen into multi-index
+    for (int i = 1; i <= k; i++) {
+      range = comp.getHighBoundary(i) - comp.getLowBoundary(i) + 1;
+      val = tmp % range;
+      tmp /= range;
+      aa[i] = comp.getLowBoundary(i) + val;
+    }
+    
+    if (this->currentGen < this->conf.max_gen && this->currentGen < comp.getNoMultipliers())
+    {
+      ++this->currentGen;
+      return new MRGLattice<Int, Real>(comp.getModulus(), aa, this->conf.maxdim);
+    }
+    // Otherwise return null pointer
+    return nullptr;
+  }
+
+  //===========================================================================
+
+  /**
+  * nextGeneratorRandom() generates admissible MRG generators by randomly selecting 
+  * the recurrence coefficients within the ranges specified in the configuration. 
+  * It provides the random search analagoue of nextGenerator() and can be used by 
+  * performSearch() when a stochastic search.
+  */
+  template<typename Int, typename Real> MRGLattice<Int, Real>* SearchCombinedMRG<Int, Real>::nextGeneratorRandom()
+  {
+    const auto& comp = mrgConf.genComponents[0];
+    const int k = comp.getOrder();
+    NTL::Vec<NTL::ZZ> aa;
+    aa.SetLength(k + 1);
+
+    for (int i = 1; i <= k; i++) {
+      aa[i] = randInt(comp.getLowBoundary(i), comp.getHighBoundary(i));
+    }
+
+    if (this->currentGen < this->conf.max_gen)
+    {
+      ++this->currentGen;
+      return new MRGLattice<Int, Real>(comp.getModulus(), aa, this->conf.maxdim);
+    }
+
+    return nullptr;
+  }
+
+  //===========================================================================
+
+  /**
+  * This method checks whether the generated lattice satisfies the
+  * maximal-period requirement for an MRG.
+  */
+  template<typename Int, typename Real> bool SearchCombinedMRG<Int, Real>::checkMaxPeriod(MRGLattice<Int, Real>& lat)
+  {
+     return mrg.maxPeriod(lat.getaa());
+  }
+
+}// End namespace LatMRG
+#endif

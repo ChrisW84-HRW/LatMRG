@@ -1,6 +1,6 @@
 // This file is part of LatMRG.
 //
-// Copyright (C) 2012-2022  The LatMRG authors, under the occasional supervision
+// Copyright (C) 2012-2026  The LatMRG authors, under the occasional supervision
 // of Pierre L'Ecuyer at Universit? de Montr?al.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -18,99 +18,144 @@
 #ifndef LATMRG_SEARCHMRG_H
 #define LATMRG_SEARCHMRG_H
 
-#include <cassert>
-#include <iostream>
-#include <iomanip>
+#include <vector>
+#include <utility>
+#include <string>
 #include <memory>
 
-#include "latmrg/PrimesFinder.h"
-#include "latmrg/ConfigSearchBase.h"
-#include "latmrg/ConfigSearchMRG.h"
-#include "latmrg/FigureOfMeritData.h"
-#include "latticetester/FigureOfMeritM.h"
-#include "latticetester/FigureOfMeritDualM.h"
-#include "latticetester/ReducerBB.h"
-#include "latticetester/Weights.h"
-#include "latticetester/WeightsUniform.h"
-#include "latmrg/Search.h"
-
-#include "latmrg/LCGLattice.h"
-#include "latmrg/LCGComponent.h"
-#include "latmrg/MWCComponent.h"
-#include "latmrg/MWCLattice.h"
+#include "latmrg/SearchBase.h"
+#include "latmrg/EnumTypes.h"
+#include "latticetester/Util.h"
 
 namespace LatMRG {
 
-  /**
-  * \class SearchMRG
-  *
-  * This class implements the search procedure for MRG lattices. 
-  * It derives from the abstract class Search and provides the 
-  * lattice-specific implementation of the next generator methods 
-  * required during the search. This class only defines how MRG 
-  * candidate generators are created. 
-  *
-  * The method nextGeneratorExhaustive() performs an exhaustive enumeration of the
-  * admissible MRG generators defined by the configuration. 
-  *
-  * The method nextGeneratorRandom() generates admissible MRG generators by
-  * randomly selecting the recurrence coefficients within the ranges specified
-  * in the configuration. 
-  *
-  * The constructor is mainly inherited from Search. It initializes the search using a
-  * ConfigSearch object, which specifies the modulus, recurrence order,
-  * admissible coefficient ranges, search limits, and the figure-of-merit
-  * configuration.
-  */
+/**
+ * Configuration for an MRG search.
+ */
+template<typename Int, typename Real>
+struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
+{
+    SearchMRG() : SearchBase<Int, Real, MRGLattice<Int, Real>>(MRG) {}
 
-    template<typename Int, typename Real>
-    class SearchMRG: public Search<MRGLattice<Int, Real>> {
-
-        public:
-
-        SearchMRG(ConfigSearchMRG<Int, Real>& config)        
-        : Search<MRGLattice<Int, Real>>(config),
-          mrgConf(config),
-          mrg(config.getModulus(), config.getOrder())
-        {
+    Int modulus;   // The modulus m = b^e + r
+    Int base;      // The base b
+    Int exponent;  // The exponent e
+    Int rest;      // The rest r
+    long order;    // The order k
+    IntVec lowBoundaries;  // The low and high boundaries for the coefficients a_j 
+    IntVec highBoundaries; // Default values are 1 and m-1 
+    bool appFac = false;   // true iff we enforce the approximate factoring condition (default = false)
+    vector<long> numPowerTwo;  // Values of n_i (max number of powers of 2)
+    vector<long> maxPowerTwo;  // Values of p_i (max power of 2)
+    vector<vector<pair<long,long>>> equalCoeffs;  // List of pairs of coefficients that must be equal
+    DecompType howFactorh; // Indicates how to factorize h=(m-1)/2
+    IntVec factorsh;      // The factors of h, repeated according to multiplicity, when known
+    DecompType howFactor;  // Indicates how to factorize r=(m^k-1)/(m-1)
+    IntVec factorsr;      // The factors of r, repeated according to multiplicity, when known
+    bool permaxPow2;   // True iff m is a power of 2, b=2, r=0, k=1, and we want max period for the LCG
+                       // Default is false
+    long numRandomRegions = 1;   // for search of random boxes (cooresponds to N_r in the guide)
+    IntVec subregionSize;        // the allowed sizes of the boxes h_i, indexed from 1 to k
+                       
+    // Get and set methods
+    Int getModulus() const {return modulus;}
+    void setModulus(const Int& value) {modulus = value;}
+    Int getBase() const {return base;}
+    void setBase(const Int& value) {base = value;}
+    Int getExponent() const {return exponent;}
+    void setExponent(const Int& value) {exponent = value;}
+    Int getRest() const {return rest;}
+    void setRest(const Int& value) {rest = value;}
+    long getOrder() const {return order;}
+    void setOrder(long value) {order = value;}
+    const IntVec& getLowBoundaries() const {return lowBoundaries;}
+    void setLowBoundaries(const IntVec& values) {lowBoundaries = values;}
+    Int getLowBoundary(int i) const {return lowBoundaries[i];}
+    void setLowBoundary(int i, const Int& value) {lowBoundaries[i] = value;}
+    const IntVec& getHighBoundaries() const {return highBoundaries;}
+    void setHighBoundaries(const IntVec& values) {highBoundaries = values;}
+    Int getHighBoundary(int i) const {return highBoundaries[i];}
+    void setHighBoundary(int i, const Int& value) {highBoundaries[i] = value;}
+    bool getAppFac() const {return appFac;}
+    void setAppFac(bool value) {appFac = value;}
+    const vector<long>& getNumPowerTwo() const {return numPowerTwo;}
+    void setNumPowerTwo(const vector<long>& values) {numPowerTwo = values;}
+    const vector<long>& getMaxPowerTwo() const {return maxPowerTwo;}
+    void setMaxPowerTwo(const vector<long>& values) {maxPowerTwo = values;}
+    const vector<vector<pair<long,long>>>& getEqualCoeffs() const {return equalCoeffs;}
+    void setEqualCoeffs(const vector<vector<pair<long,long>>>& values) {equalCoeffs = values;}
+    DecompType getHowFactorh() const {return howFactorh;}
+    void setHowFactorh(DecompType value) {howFactorh = value;}
+    const IntVec& getFactorsh() const {return factorsh;}
+    void setFactorsh(const IntVec& values) {factorsh = values;}
+    DecompType getHowFactor() const {return howFactor;}
+    void setHowFactor(DecompType value) {howFactor = value;}
+    const IntVec& getFactorsr() const {return factorsr;}
+    void setFactorsr(const IntVec& values) {factorsr = values;}
+    bool getPermaxPow2() const {return permaxPow2;}
+    void setPermaxPow2(bool value) {permaxPow2 = value;}
+    Int getNoMultipliers() const
+    {
+        Int total(1);
+        for (long i = 1; i <= order; i++) {
+            total *= highBoundaries[i] - lowBoundaries[i] + 1;
         }
+        return total;
+    }
+    long getNumRandomRegions() {return numRandomRegions;}
+    void setNumRandomRegions(long value) {numRandomRegions = value;}    
+    Int getSubregionSize(int i) const {return subregionSize[i];}
+    void setSubregionSize(IntVec value) {subregionSize = value;}
+    // There is only a single component
+    Int getComponentModulus(int k = 0) const override {return getModulus();}
+    long getComponentOrder(int k = 0) const override {return getOrder();}
 
-        MRGLattice<Int, Real>* nextGeneratorExhaustive() override;
+    
+    MRGLattice<Int, Real>* nextGeneratorExhaustive() override;
 
-        MRGLattice<Int, Real>* nextGeneratorRandom() override;
+    MRGLattice<Int, Real>* nextGeneratorRandom() override;
 
-        MRGLattice<Int, Real>* nextGeneratorRandomBox();
+    MRGLattice<Int, Real>* nextGeneratorRandomBox();
 
-        bool checkMaxPeriod(MRGLattice<Int, Real>& lat) override;
+    bool checkMaxPeriod(MRGLattice<Int, Real>& lat) override;
 
-        void resetGeneratorState() override{
-          currentRandomRegion = 0;
-          currentSubIndex = 0;
-          hasLastAk = false;
-          lastMaxPeriodResult = false;
-          alpha.SetLength(0);
+    void resetGeneratorState() override{
+        currentRandomRegion = 0;
+        currentSubIndex = 0;
+        hasLastAk = false;
+        lastMaxPeriodResult = false;
+        alpha.SetLength(0);
+        mrg.reset();
+    }
+
+    private:
+
+    /**
+    * Object for creating an MRG lattice
+    */
+    std::unique_ptr<MRGComponent<Int>> mrg;
+
+    /**
+     * Helper function 
+    */
+    MRGComponent<Int>& getMRGComponent() {
+        if (!mrg) {
+            mrg.reset(new MRGComponent<Int>(getModulus(), getOrder()));
         }
+        return *mrg;
+    }
 
-        private:
-
-        ConfigSearchMRG<Int, Real>& mrgConf;
-
-        /**
-        * Object for creating an MRG lattice
-        */
-        MRGComponent<Int> mrg;
-
-        /*
-        * Helper variables for box search -- maybe need to be initalized
-        */
-       long currentRandomRegion = 0;
-       Int currentSubIndex = Int(0);
-       IntVec alpha;
-       bool hasLastAk = false;
-       NTL::ZZ lastAk;
-       bool lastMaxPeriodResult = false;
-
-    };
+    /*
+    * Helper variables for box search
+    */
+    long currentRandomRegion = 0;
+    Int currentSubIndex = Int(0);
+    IntVec alpha;
+    bool hasLastAk = false;
+    NTL::ZZ lastAk;
+    bool lastMaxPeriodResult = false;
+    
+};
 
 //============================================================================
 // Implementation
@@ -128,28 +173,27 @@ namespace LatMRG {
   */
   template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real>::nextGeneratorExhaustive()
   {
-    const int k = mrgConf.getOrder();    
+    const int k = getOrder();    
     Int range, val;
     Int tmp;
     NTL::Vec<NTL::ZZ> aa;
     aa.SetLength(k + 1);
-
-    while (this->currentGen < this->conf.max_gen &&
-           this->currentGen < mrgConf.getNoMultipliers())
+    while (this->currentGen < this->getMaxGen() &&
+           this->currentGen < getNoMultipliers())
     {
         // Set the vector of multipliers for the next generator
         tmp = NTL::to_ZZ(this->currentGen);
         for (int i = 1; i <= k; i++) {
-            range = mrgConf.getHighBoundary(i) - mrgConf.getLowBoundary(i) + 1;
+            range = getHighBoundary(i) - getLowBoundary(i) + 1;
             val = tmp % range;
             tmp /= range;
-            aa[i] = mrgConf.getLowBoundary(i) + val;
+            aa[i] = getLowBoundary(i) + val;
         }
         ++this->currentGen;
         
-        if (this->conf.onlyMaxPeriod() && !mrg.maxPeriod(aa)) {continue;}
+        if (this->onlyMaxPeriod() && !getMRGComponent().maxPeriod(aa)) {continue;}
 
-        return new MRGLattice<Int, Real>(mrgConf.getModulus(), aa, this->conf.maxdim);
+        return new MRGLattice<Int, Real>(getModulus(), aa, this->maxdim);
     }
     return nullptr;
   }
@@ -165,17 +209,18 @@ namespace LatMRG {
   */
   template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real>::nextGeneratorRandom()
   {
-    const int k = mrgConf.getOrder();
+    
+    const int k = getOrder();
     NTL::Vec<NTL::ZZ> aa;
     aa.SetLength(k + 1);
 
-    while (this->currentGen < this->conf.max_gen)
+    while (this->currentGen < this->getMaxGen())
     {
-        for (int i = 1; i <= k; i++) aa[i] = randInt(mrgConf.getLowBoundary(i),  mrgConf.getHighBoundary(i));
+        for (int i = 1; i <= k; i++) aa[i] = randInt(getLowBoundary(i),  getHighBoundary(i));
         ++this->currentGen;
-        if (this->conf.onlyMaxPeriod() && !mrg.maxPeriod(aa))  continue;
+        if (this->onlyMaxPeriod() && !getMRGComponent().maxPeriod(aa))  continue;
 
-        return new MRGLattice<Int, Real>(mrgConf.getModulus(), aa, this->conf.maxdim);
+        return new MRGLattice<Int, Real>(getModulus(), aa, this->maxdim);
     }
     return nullptr;
   }
@@ -187,7 +232,7 @@ namespace LatMRG {
   */
   template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real>::nextGeneratorRandomBox()
   {
-    const int k = mrgConf.getOrder();
+    const int k = getOrder();
     Int subregionTotal(1);
     Int akStepSize(1);
     
@@ -197,13 +242,13 @@ namespace LatMRG {
 
     // Calculate subregion size
     for (int i = 1; i <= k; i++) {
-       Int hi = mrgConf.getSubregionSize(i);
+       Int hi = getSubregionSize(i);
         subregionTotal *= hi;
         if (i < k) akStepSize *= hi;
     }
 
-    while (this->currentGen < this->conf.max_gen &&
-           currentRandomRegion < mrgConf.getNumRandomRegions())
+    while (this->currentGen < this->getMaxGen() &&
+           currentRandomRegion < getNumRandomRegions())
     {
         // If the current box is exhausted, move to the next random box.
         if (currentSubIndex >= subregionTotal) {
@@ -216,7 +261,7 @@ namespace LatMRG {
         // Draw a new random box.
         if (currentSubIndex == 0) {
             for (int i = 1; i <= k; i++) {
-                alpha[i] = randInt(mrgConf.getLowBoundary(i), mrgConf.getHighBoundary(i) - mrgConf.getSubregionSize(i) + 1);
+                alpha[i] = randInt(getLowBoundary(i), getHighBoundary(i) - getSubregionSize(i) + 1);
             }
             hasLastAk = false;
         }
@@ -226,7 +271,7 @@ namespace LatMRG {
         Int offset;
         Int offsetK(0);
         for (int i = 1; i <= k; i++) {
-            Int hi = mrgConf.getSubregionSize(i);
+            Int hi = getSubregionSize(i);
             offset = tmp % hi;
             tmp /= hi;
             aa[i] = alpha[i] + offset;
@@ -236,11 +281,11 @@ namespace LatMRG {
         
         ++this->currentGen;
         // Check maximal period only when a_k has changed.
-        if (this->conf.onlyMaxPeriod()) {
+        if (this->onlyMaxPeriod()) {
             bool akChanged = !hasLastAk || aa[k] != lastAk;
             if (akChanged) {
-                setModulusIntP<Int>(mrgConf.getModulus());
-                lastMaxPeriodResult = mrg.maxPeriod(aa);
+                setModulusIntP<Int>(getModulus());
+                lastMaxPeriodResult = getMRGComponent().maxPeriod(aa);
                 lastAk = aa[k];
                 hasLastAk = true;
             }
@@ -254,9 +299,9 @@ namespace LatMRG {
         }
         ++currentSubIndex;
 
-        return new MRGLattice<Int, Real>(mrgConf.getModulus(), aa, this->conf.maxdim);
+        return new MRGLattice<Int, Real>(getModulus(), aa, this->maxdim);
     }
-
+    
     return nullptr;
 }
   /**
@@ -267,8 +312,9 @@ namespace LatMRG {
   */
   template<typename Int, typename Real> bool SearchMRG<Int, Real>::checkMaxPeriod(MRGLattice<Int, Real>& lat)
   {
-     return mrg.maxPeriod(lat.getaa());
+    return getMRGComponent().maxPeriod(lat.getaa());
   }
 
-}// End namespace LatMRG
-#endif
+} // namespace LatMRG
+
+#endif // LATMRG_SEARCHMRG_H

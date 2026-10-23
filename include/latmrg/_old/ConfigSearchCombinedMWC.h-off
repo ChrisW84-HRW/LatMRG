@@ -22,7 +22,7 @@
 #include <utility>
 #include <cstdint>
 
-#include "latmrg/ConfigSearchBase.h"
+#include "latmrg/SearchBase.h"
 #include "latticetester/Util.h"
 
 namespace LatMRG {

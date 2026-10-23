@@ -1,6 +1,6 @@
 // This file is part of LatMRG.
 //
-// Copyright (C) 2012-2022  The LatMRG authors, under the occasional supervision
+// Copyright (C) 2012-2026  The LatMRG authors, under the occasional supervision
 // of Pierre L'Ecuyer at Universit? de Montr?al.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,99 +15,144 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef LATMRG_SEARCHCOMBINEDMWC_H
-#define LATMRG_SEARCHCOMBINEDMWC_H
+#ifndef LATMRG_CONFIGSEARCHCOMBINEDMWC_H
+#define LATMRG_CONFIGSEARCHCOMBINEDMWC_H
 
-#include <cassert>
-#include <iostream>
-#include <iomanip>
-#include <memory>
+#include <vector>
+#include <utility>
+#include <cstdint>
 
-#include "latmrg/PrimesFinder.h"
-#include "latmrg/ConfigSearchBase.h"
-#include "latmrg/FigureOfMeritData.h"
-#include "latticetester/FigureOfMeritM.h"
-#include "latticetester/FigureOfMeritDualM.h"
-#include "latticetester/ReducerBB.h"
-#include "latticetester/Weights.h"
-#include "latticetester/WeightsUniform.h"
-
-#include "latmrg/LCGLattice.h"
-#include "latmrg/LCGComponent.h"
-#include "latmrg/MWCComponent.h"
-#include "latmrg/MWCLattice.h"
+#include "latmrg/SearchBase.h"
+#include "latticetester/Util.h"
 
 namespace LatMRG {
 
-  /**
-  * \class SearchCombinedMWC
-  * 
-  * This class implements the search procedure for MWC lattices. 
-  * It derives from the abstract class Search and provides the 
-  * lattice-specific implementation of the next generator methods 
-  * required during the search. This class only defines how MRG 
-  * candidate generators are created. 
-  *
-  * The method nextGenerator() performs an exhaustive enumeration of the
-  * admissible MWC generators defined by the configuration. 
-  *
-  * The method nextGeneratorRandom() generates admissible MWC generators by
-  * randomly selecting the multiplier coefficients according to the bit-size
-  * restrictions and configuration parameters. 
-  *
-  * The constructor is inherited from Search. It initializes the search using a
-  * ConfigSearch object, which specifies the modulus parameters, recurrence
-  * order, admissible coefficient ranges, search limits, and the
-  * figure-of-merit configuration.
+/**
+ * Configuration for a combined MWC search.
+ * This is only a DUMMY CLASS.
  */
+template<typename Int, typename Real>
+struct SearchCombinedMWC : public SearchBase<Int, Real, MWCLattice<Int, Real>>
+{
+    SearchCombinedMWC() : SearchBase<Int, Real, MWCLattice<Int, Real>>(MWC) {}
+    /**
+     * Configuration for one MWC component.
+     */
+    struct ComponentMWC
+    {
+        // Int modulus;   // The modulus m of the equivalent LCG (to be computed)
+        long powMod;   // Value of e such that the modulus is b = 2^e
+        long order;    // The order k
+        IntVec lowBoundaries;  // The low and high boundaries for the coefficients a_j
+        IntVec highBoundaries; // Default values are 1 and b-1
+        vector<long> numPowerTwo;  // Values of n_i (max number of powers of 2)
+        vector<long> maxPowerTwo;  // Values of p_i (max power of 2)
+        vector<int64_t> randomBits; // For random searches, the nonzero coefficients `a_j` are generated randomly with `e_j` random bits
+        int64_t numaj; // number of positive coefficients 
+        vector<vector<pair<long,long>>> equalCoeffs;  // List of pairs of coefficients that must be equal
 
-    template<typename Int, typename Real>
-    class SearchCombinedMWC: public Search<MWCLattice<Int, Real>> {
+        long getOrder() const
+        {
+            return order;
+        }
 
+        Int getNoMultipliers() const
+        {
+            Int total(1);
+            for (long i = 1; i <= order; i++) {
+                total *= highBoundaries[i] - lowBoundaries[i] + 1;
+            }
+            return total;
+        }
+
+        Int getLowBoundary(int i) const
+        {
+            return lowBoundaries[i];
+        }
+
+        Int getHighBoundary(int i) const
+        {
+            return highBoundaries[i];
+        }
+
+        int64_t getRandomBits(int i) const
+        {
+            return randomBits[i];
+        }
+
+        long getPowMod() const
+        {
+            return powMod;
+        }
+    };
+
+    std::vector<ComponentMWC> genComponents;
+
+    void createComponents()
+    {
+        genComponents.resize(this->numComp);
+    }
+
+    const ComponentMWC & component(int i) const
+    {
+        return genComponents[i];
+    }
+
+    ComponentMWC & component(int i)
+    {
+        return genComponents[i];
+    }
+
+    Int getModulus() const override
+    {
+        Int mod(1);
+        for (const auto& comp : genComponents) {
+            mod *= comp.getModulus();
+        }
+        return mod;
+    }
+
+    
+    MWCLattice<Int, Real>* nextGenerator() override;
+
+    MWCLattice<Int, Real>* nextGeneratorRandom() override;
+        
+    bool checkMaxPeriod(MWCLattice<Int, Real>& lat) override;
+
+    private: 
+
+    /**
+    * Helper class used to find admissible MWC moduli.
+    *
+    * Searches around 2^e - 1 +/- c and returns a modulus m such that:
+    *
+    *   - m is prime
+    *   - (m-1)/2 is prime
+    *   - 2^((m-1)/2) != 1 (mod m)
+    *
+    * These conditions provide the safe-prime properties required
+    * for MWC maximal-period behaviour.
+    */
+    class Modulus {
         public:
 
-        using Search<MWCLattice<Int, Real>>::Search;
+        /**
+        * Search will begin at `2^e±c` and will increase of decrease depending on
+        * `increase`.
+        */
+        Modulus(long e, Int c, bool increase) {
+            m = (Int(1)<<e) - 1;
+            this->increase = increase;
+            if (increase) m+=c;
+            else m-=c;
+        }
 
-        MWCLattice<Int, Real>* nextGenerator() override;
-
-        MWCLattice<Int, Real>* nextGeneratorRandom() override;
-        
-        bool checkMaxPeriod(MWCLattice<Int, Real>& lat) override;
-
-        private: 
-
-          /**
-          * Helper class used to find admissible MWC moduli.
-          *
-          * Searches around 2^e - 1 +/- c and returns a modulus m such that:
-          *
-          *   - m is prime
-          *   - (m-1)/2 is prime
-          *   - 2^((m-1)/2) != 1 (mod m)
-          *
-          * These conditions provide the safe-prime properties required
-          * for MWC maximal-period behaviour.
-          */
-          class Modulus {
-            public:
-
-            /**
-            * Search will begin at `2^e±c` and will increase of decrease depending on
-            * `increase`.
-            */
-            Modulus(long e, Int c, bool increase) {
-              m = (Int(1)<<e) - 1;
-              this->increase = increase;
-              if (increase) m+=c;
-              else m-=c;
-            }
-
-            /**
-            * This function finds the next value for `m`. This can return 1 if
-            * `increase` is `false` and `m` gets to 1.
-            */
-            Int next() {
-              while (m > 1) {
+        /**
+        * This function finds the next value for `m`. This can return 1 if
+        * `increase` is `false` and `m` gets to 1.
+        */
+        Int next() {
+            while (m > 1) {
                 nextM();
                 LatMRG::PrimeType status = LatMRG::IntFactor<Int>::isPrime (m, KTRIALS);
                 if (status == LatMRG::PRIME || status == LatMRG::PROB_PRIME) {
@@ -124,38 +169,37 @@ namespace LatMRG {
                   return m;
                 }
               }
-              return Int(-1);
-            }
+            return Int(-1);
+        }
 
-          private:
+        private:
 
-            static const long KTRIALS = 200;  //  The user must be allowed to select this constant!
+        static const long KTRIALS = 200;  //  The user must be allowed to select this constant!
 
-            /**
-            * Last valid modulus found (or 2^e).
-            */
-            Int m;
+        /**
+        * Last valid modulus found (or 2^e).
+        */
+        Int m;
 
-            /**
-            * As passed to constructor.
-            */
-            bool increase;
+        /**
+        * As passed to constructor.
+        */
+        bool increase;
 
-            /**
-            * Increment/decrement m
-            */
-            void nextM () {
-              if (increase) m += 2;
-              else m -= 2;
-              if (0 == m % 5){
+        /**
+        * Increment/decrement m
+        */
+        void nextM () {
+            if (increase) m += 2;
+            else m -= 2;
+            if (0 == m % 5){
                 if (increase) m += 2;
                 else m -= 2;
-              }
             }
-        };
+        }
+    }; 
 
-
-    };
+};
 
 //============================================================================
 // Implementation
@@ -246,5 +290,6 @@ namespace LatMRG {
     return mIsSafePrime(lat.getModulus(), 100) && maxPeriodHalfMWC(lat.getModulus(), this->conf.genComponents[0]->getPowMod());
  }
 
-}// End namespace LatMWC
-#endif
+} // namespace LatMRG
+
+#endif // LATMRG_CONFIGSEARCHCOMBINEDMWC_H

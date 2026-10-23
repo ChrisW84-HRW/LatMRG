@@ -1,6 +1,6 @@
 // This file is part of LatMRG.
 //
-// Copyright (C) 2012-2022  The LatMRG authors, under the occasional supervision
+// Copyright (C) 2012-2026  The LatMRG authors, under the occasional supervision
 // of Pierre L'Ecuyer at Universit? de Montr?al.
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,82 +15,144 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
-#ifndef LATMRG_SEARCHCOMBINEDMRG_H
-#define LATMRG_SEARCHCOMBINEDMRG_H
+#ifndef LATMRG_CONFIGSEARCHCOMBINEDMRG_H
+#define LATMRG_CONFIGSEARCHCOMBINEDMRG_H
 
-#include <cassert>
-#include <iostream>
-#include <iomanip>
-#include <memory>
+#include <vector>
+#include <utility>
+#include <string>
 
-#include "latmrg/PrimesFinder.h"
-#include "latmrg/ConfigSearchBase.h"
-#include "latmrg/ConfigSearchCombinedMRG.h"
-#include "latmrg/FigureOfMeritData.h"
-#include "latticetester/FigureOfMeritM.h"
-#include "latticetester/FigureOfMeritDualM.h"
-#include "latticetester/ReducerBB.h"
-#include "latticetester/Weights.h"
-#include "latticetester/WeightsUniform.h"
-#include "latmrg/Search.h"
-
-#include "latmrg/LCGLattice.h"
-#include "latmrg/LCGComponent.h"
-#include "latmrg/MWCComponent.h"
-#include "latmrg/MWCLattice.h"
+#include "latmrg/SearchBase.h"
+#include "latmrg/EnumTypes.h"
+#include "latticetester/Util.h"
 
 namespace LatMRG {
 
-  /**
-  * \class SearchCombinedMRG
-  *
-  * This class implements the search procedure for MRG lattices. 
-  * It derives from the abstract class Seach and provides the 
-  * lattice-specific implementation of the next generator methods 
-  * required during the search. This class only defines how MRG 
-  * candidate generators are created. 
-  *
-  * The method nextGenerator() performs an exhaustive enumeration of the
-  * admissible MRG generators defined by the configuration. 
-  *
-  * The method nextGeneratorRandom() generates admissible MRG generators by
-  * randomly selecting the recurrence coefficients within the ranges specified
-  * in the configuration. 
-  *
-  * The constructor is mainly inherited from Search. It initializes the search using a
-  * ConfigSearch object, which specifies the modulus, recurrence order,
-  * admissible coefficient ranges, search limits, and the figure-of-merit
-  * configuration.
-  */
+/**
+ * Configuration for an combined MRG search. 
+ * This class is currently a DUMMY CLASS.
+ */
+template<typename Int, typename Real>
+struct SearchCombinedMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
+{
+    SearchCombinedMRG() : SearchBase<Int, Real, MRGLattice<Int, Real>>(MRG) {}
 
-    template<typename Int, typename Real>
-    class SearchCombinedMRG: public Search<MRGLattice<Int, Real>> {
-
-        public:
-
-        SearchCombinedMRG(ConfigSearchCombinedMRG<Int, Real>& config)        
-        : Search<MRGLattice<Int, Real>>(config),
-          mrgConf(config),
-          mrg(config.genComponents[0].getModulus(), config.genComponents[0].getOrder())
+    /**
+     * Configuration + methods for one MRG component.
+     */
+    struct ComponentMRG
+    {
+        Int modulus;   // The modulus m = b^e + r
+        Int base;      // The base b
+        Int exponent;  // The exponent e
+        Int rest;      // The rest r
+        long order;    // The order k
+        IntVec lowBoundaries;  // The low and high boundaries for the coefficients a_j 
+        IntVec highBoundaries; // Default values are 1 and m-1 
+        bool appFac = false;   // true iff we enforce the approximate factoring condition (default = false)
+        vector<long> numPowerTwo;  // Values of n_i (max number of powers of 2)
+        vector<long> maxPowerTwo;  // Values of p_i (max power of 2)
+        vector<vector<pair<long,long>>> equalCoeffs;  // List of pairs of coefficients that must be equal
+        DecompType howFactorh; // Indicates how to factorize h=(m-1)/2
+        IntVec factorsh;      // The factors of h, repeated according to multiplicity, when known
+        DecompType howFactor;  // Indicates how to factorize r=(m^k-1)/(m-1)
+        IntVec factorsr;      // The factors of r, repeated according to multiplicity, when known
+        bool permaxPow2;   // True iff m is a power of 2, b=2, r=0, k=1, and we want max period for the LCG
+                       // Default is false
+        
+        Int getModulus() const
         {
+            return modulus;
         }
 
-        MRGLattice<Int, Real>* nextGenerator() override;
+        long getOrder() const
+        {
+            return order;
+        }
 
-        MRGLattice<Int, Real>* nextGeneratorRandom() override;
+        Int getNoMultipliers() const
+        {
+            Int total(1);
+            for (long i = 1; i <= order; i++) {
+                total *= highBoundaries[i] - lowBoundaries[i] + 1;
+            }
+            return total;
+        }
 
-        bool checkMaxPeriod(MRGLattice<Int, Real>& lat) override;
+        Int getLowBoundary(int i) const
+        {
+            return lowBoundaries[i];
+        }
 
-        private:
-
-        ConfigSearchCombinedMRG<Int, Real>& mrgConf;
-
-        /**
-        * Object for creating an MRG lattice
-        */
-        MRGComponent<Int> mrg;
-
+        Int getHighBoundary(int i) const
+        {
+            return highBoundaries[i];
+        }
     };
+
+    std::vector<ComponentMRG> genComponents;
+
+    // DUMMY
+    void getOrder() { return genComponents[0].getOrder();} 
+
+    // This method resizes the vector of components to the right size
+    void createComponents()
+    {
+        genComponents.resize(this->numComp);
+    }
+
+    // Gets the modulus of an MRG with multiple components
+    Int getModulus() const override
+    {
+        Int mod(1);
+        for (const auto& component : genComponents) {
+            mod *= component.getModulus();
+        }
+        return mod;
+    }
+
+    // Gets a single component
+    ComponentMRG & component(int i)
+    {
+        return genComponents[i];
+    }
+
+    // Gets the modulus of a single component
+    Int getComponentModulus(int k) const override
+    {
+        return genComponents[k].getModulus();
+    }
+
+    // Gets the order of a single component
+    long getComponentOrder(int k) const override
+    {
+        return genComponents[k].getOrder();
+    }
+
+    MRGLattice<Int, Real>* nextGenerator() override;
+
+    MRGLattice<Int, Real>* nextGeneratorRandom() override;
+
+    bool checkMaxPeriod(MRGLattice<Int, Real>& lat) override;
+
+    private:
+
+    /**
+    * Object for creating an MRG lattice
+    */
+    std::unique_ptr<MRGComponent<Int>> mrg;
+
+    /**
+     * Helper function 
+    */
+    MRGComponent<Int>& getMRGComponent() {
+        if (!mrg) {
+            mrg.reset(new MRGComponent<Int>(getModulus(), getOrder()));
+        }
+        return *mrg;
+    }
+
+};
 
 //============================================================================
 // Implementation
@@ -106,7 +168,7 @@ namespace LatMRG {
   */
   template<typename Int, typename Real> MRGLattice<Int, Real>* SearchCombinedMRG<Int, Real>::nextGenerator()
   {
-    const auto& comp = mrgConf.genComponents[0];
+    const auto& comp = genComponents[0];
 
     Int range, val;
     Int tmp = NTL::to_ZZ(this->currentGen);
@@ -142,7 +204,7 @@ namespace LatMRG {
   */
   template<typename Int, typename Real> MRGLattice<Int, Real>* SearchCombinedMRG<Int, Real>::nextGeneratorRandom()
   {
-    const auto& comp = mrgConf.genComponents[0];
+    const auto& comp = genComponents[0];
     const int k = comp.getOrder();
     NTL::Vec<NTL::ZZ> aa;
     aa.SetLength(k + 1);
@@ -171,5 +233,7 @@ namespace LatMRG {
      return mrg.maxPeriod(lat.getaa());
   }
 
-}// End namespace LatMRG
-#endif
+
+} // namespace LatMRG
+
+#endif // LATMRG_SEARCHCOMBINEDMRG_H

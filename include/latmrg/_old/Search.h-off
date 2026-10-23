@@ -97,7 +97,163 @@ namespace LatMRG {
    Search(ConfigSearch<Int, Real>& config) : conf(config)
                                         , bestLattices(conf.configFOM.no_bestGen, conf.configFOM.best) 
                                         , fomPrimal(config.configFOM.t, *config.configFOM.weights, *config.configFOM.norma, config.configFOM.red, config.configFOM.includeFirst)
-                                        , fomDual(config.configFOM.t, *config.configFOM.weights, *config.configFOM.norma, config.configFOM.red, config.configFOM.includeFirst)
+                              //============================================================================
+// Implementation
+
+
+ /**
+  * nextGeneratorExhaustive() performs an exhaustive enumeration of the admissible MRG 
+  * generators defined by the configuration. The coefficients of the recurrence 
+  * are obtained by decoding the current generator index into the corresponding 
+  * multiplier values within the prescribed ranges. Each admissible set of 
+  * coefficients is used to construct an MRG lattice that is subsequently analyzed 
+  * by the search procedure defined in the base class.
+  * If the search is restricted to generators with maximal period, then nextGeneratorExhaustive()
+  * gives the next generator with this property (otherwise they are skipped).
+  */
+  template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real>::nextGeneratorExhaustive()
+  {
+    const int k = mrgConf.getOrder();    
+    Int range, val;
+    Int tmp;
+    NTL::Vec<NTL::ZZ> aa;
+    aa.SetLength(k + 1);
+
+    while (this->currentGen < this->conf.max_gen &&
+           this->currentGen < mrgConf.getNoMultipliers())
+    {
+        // Set the vector of multipliers for the next generator
+        tmp = NTL::to_ZZ(this->currentGen);
+        for (int i = 1; i <= k; i++) {
+            range = mrgConf.getHighBoundary(i) - mrgConf.getLowBoundary(i) + 1;
+            val = tmp % range;
+            tmp /= range;
+            aa[i] = mrgConf.getLowBoundary(i) + val;
+        }
+        ++this->currentGen;
+        
+        if (this->conf.onlyMaxPeriod() && !mrg.maxPeriod(aa)) {continue;}
+
+        return new MRGLattice<Int, Real>(mrgConf.getModulus(), aa, this->conf.maxdim);
+    }
+    return nullptr;
+  }
+  //===========================================================================
+
+  /**
+  * nextGeneratorRandom() generates admissible MRG generators by randomly selecting 
+  * the recurrence coefficients within the ranges specified in the configuration. 
+  * It provides the random search analagoue of nextGeneratorExhaustive() and can be used by 
+  * performSearch() when a stochastic search. 
+  * If the search is restricted to generators with maximal period, then 
+  * nextGeneratorRandom() only yields generators having this property.
+  */
+  template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real>::nextGeneratorRandom()
+  {
+    const int k = mrgConf.getOrder();
+    NTL::Vec<NTL::ZZ> aa;
+    aa.SetLength(k + 1);
+
+    while (this->currentGen < this->conf.max_gen)
+    {
+        for (int i = 1; i <= k; i++) aa[i] = randInt(mrgConf.getLowBoundary(i),  mrgConf.getHighBoundary(i));
+        ++this->currentGen;
+        if (this->conf.onlyMaxPeriod() && !mrg.maxPeriod(aa))  continue;
+
+        return new MRGLattice<Int, Real>(mrgConf.getModulus(), aa, this->conf.maxdim);
+    }
+    return nullptr;
+  }
+
+  //===========================================================================
+
+  /**
+  * Description.
+  */
+  template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real>::nextGeneratorRandomBox()
+  {
+    const int k = mrgConf.getOrder();
+    Int subregionTotal(1);
+    Int akStepSize(1);
+    
+    NTL::Vec<NTL::ZZ> aa;
+    aa.SetLength(k + 1);
+    alpha.SetLength(k + 1);
+
+    // Calculate subregion size
+    for (int i = 1; i <= k; i++) {
+       Int hi = mrgConf.getSubregionSize(i);
+        subregionTotal *= hi;
+        if (i < k) akStepSize *= hi;
+    }
+
+    while (this->currentGen < this->conf.max_gen &&
+           currentRandomRegion < mrgConf.getNumRandomRegions())
+    {
+        // If the current box is exhausted, move to the next random box.
+        if (currentSubIndex >= subregionTotal) {
+            ++currentRandomRegion;
+            currentSubIndex = 0;
+            hasLastAk = false;
+            continue;
+        }
+
+        // Draw a new random box.
+        if (currentSubIndex == 0) {
+            for (int i = 1; i <= k; i++) {
+                alpha[i] = randInt(mrgConf.getLowBoundary(i), mrgConf.getHighBoundary(i) - mrgConf.getSubregionSize(i) + 1);
+            }
+            hasLastAk = false;
+        }
+
+        // Decode currentSubIndex into a vector inside the current box.
+        Int tmp = currentSubIndex;
+        Int offset;
+        Int offsetK(0);
+        for (int i = 1; i <= k; i++) {
+            Int hi = mrgConf.getSubregionSize(i);
+            offset = tmp % hi;
+            tmp /= hi;
+            aa[i] = alpha[i] + offset;
+            // Save what is the current offset in the last variable
+            if (i == k) offsetK = offset;
+        }
+        
+        ++this->currentGen;
+        // Check maximal period only when a_k has changed.
+        if (this->conf.onlyMaxPeriod()) {
+            bool akChanged = !hasLastAk || aa[k] != lastAk;
+            if (akChanged) {
+                setModulusIntP<Int>(mrgConf.getModulus());
+                lastMaxPeriodResult = mrg.maxPeriod(aa);
+                lastAk = aa[k];
+                hasLastAk = true;
+            }
+            // If this a_k fails, skip all remaining vectors with this a_k.
+            if (!lastMaxPeriodResult) {
+                // This ensures that we jump to the next value of a_k while 
+                // but do not skip any other points in the box
+                currentSubIndex = (offsetK + 1) * akStepSize;
+                continue;
+            }
+        }
+        ++currentSubIndex;
+
+        return new MRGLattice<Int, Real>(mrgConf.getModulus(), aa, this->conf.maxdim);
+    }
+
+    return nullptr;
+}
+  /**
+  * This method checks whether the generated lattice satisfies the
+  * maximal-period requirement for an MRG.
+  * Probably this function will not be used since it requires to pass a lattice object which has not been creater.
+  * Delete it if it is not necessary.
+  */
+  template<typename Int, typename Real> bool SearchMRG<Int, Real>::checkMaxPeriod(MRGLattice<Int, Real>& lat)
+  {
+     return mrg.maxPeriod(lat.getaa());
+  }          , fomDual(config.configFOM.t, *config.configFOM.weights, *config.configFOM.norma, config.configFOM.red, config.configFOM.includeFirst)
                                         {            
                                           fomPrimal.setLowBound(config.configFOM.minMerit);  
                                           fomDual.setLowBound(config.configFOM.minMerit);     

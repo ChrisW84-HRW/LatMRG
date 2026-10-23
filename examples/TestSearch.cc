@@ -26,12 +26,9 @@
 
 #include "latmrg/IntFactorization.h"
 #include "latmrg/EnumTypes.h"
-#include "latmrg/ConfigSearchBase.h"
-#include "latmrg/ConfigSearchMRG.h"
-#include "latmrg/ConfigSearchMWC.h"
-#include "latmrg/ConfigSearchCombinedMRG.h"
-#include "latmrg/ConfigSearchCombinedMWC.h"
-#include "latmrg/Search.h"
+
+
+#include "latmrg/SearchBase.h"
 #include "latmrg/SearchMRG.h"
 #include "latmrg/SearchMWC.h"
 #include "latmrg/SearchCombinedMRG.h"
@@ -51,6 +48,8 @@ using namespace LatMRG;
 int main() {
   
   cout << "The purpose is to test Search.h.\n";
+
+  
 
   // Variables necessary for MRG calculations
   NTL::Vec<int64_t> t; // The t-vector for the FOM.
@@ -76,44 +75,43 @@ int main() {
   ReducerBB<Int, Real> red(maxdim);
   NormaBestLat norma(log(m), 1, maxdim);
   WeightsUniform weights(1.0);
+
+  
   
   // Define all the necessary details of the configuration  
-  ConfigSearchMRG<Int, Real> conf;
-  conf.setFOM(t, &norma, &red, &weights);  
-  conf.setDualLattice(true);
-  conf.setCalculateFOM(true);
-  conf.setMaxDim(maxdim); 
-  conf.setPermax(true);
-  conf.setOutputToGenFile(false);
-  conf.setFilename("test.gen");  
-  conf.setMaxGen(100000);  
+  SearchMRG<Int, Real> searcher;
+  searcher.setFOM(t, &norma, &red, &weights);  
+  searcher.setDualLattice(true);
+  searcher.setCalculateFOM(true);
+  searcher.setMaxDim(maxdim); 
+  searcher.setPermax(true);
+  searcher.setOutputToGenFile(false);
+  searcher.setFilename("test.gen");  
+  searcher.setMaxGen(100000);  
   // Set paramters for box search
-  conf.setSubregionSize(h);
-  conf.setNumRandomRegions(10000);
+  searcher.setSubregionSize(h);
+  searcher.setNumRandomRegions(10000);
   
-  conf.setModulus(m);
-  conf.setLowBoundaries(b);
-  conf.setHighBoundaries(c);
-  conf.setOrder(b.length() - 1);
+  searcher.setModulus(m);
+  searcher.setLowBoundaries(b);
+  searcher.setHighBoundaries(c);
+  searcher.setOrder(b.length() - 1);
   // Perform the actual search
-  SearchMRG<Int, Real> searchBox(conf);
+  
   std::clock_t startBox = std::clock();
-  searchBox.performSearch(&SearchMRG<Int, Real>::nextGeneratorRandomBox);
+  searcher.performSearch(&SearchMRG<Int, Real>::nextGeneratorRandomBox);
   std::clock_t endBox = std::clock();
   double cpuTimeBox = double(endBox - startBox) / CLOCKS_PER_SEC;
   std::cout << "Random box search CPU time: " << cpuTimeBox << " seconds\n";
-  std::cout << "Best merit: " << searchBox.getBestMerit() << "\n";
+  std::cout << "Best merit: " << searcher.getBestMerit() << "\n";
   // searcher.printResults();
-  
-  
-  SearchMRG<Int, Real> searchRandom(conf);
+    
   std::clock_t startRandom = std::clock();
-  searchRandom.performSearch(&SearchMRG<Int, Real>::nextGeneratorRandom);
+  searcher.performSearch(&SearchMRG<Int, Real>::nextGeneratorRandom);
   std::clock_t endRandom = std::clock();
   double cpuTimeRandom = double(endRandom - startRandom) / CLOCKS_PER_SEC;
   std::cout << "Random box search CPU time: " << cpuTimeRandom << " seconds\n";
-  std::cout << "Best merit: " << searchRandom.getBestMerit() << "\n";
+  std::cout << "Best merit: " << searcher.getBestMerit() << "\n";
   
-
   return 0;
 }
