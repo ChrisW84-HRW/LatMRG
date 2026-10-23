@@ -30,7 +30,15 @@
 namespace LatMRG {
 
 /**
- * Configuration for an MRG search.
+ * SearchMRG contain search procedures for MRG lattices.
+ *
+ * It derives from SearchBase with MRGLattice as the concrete lattice type and
+ * stores the configuration data specific to MRG generators, such as the modulus,
+ * recurrence order, coefficient bounds, and optional restrictions used by the
+ * different search methods.
+ *
+ * The main feature of the class is that it  provides generator routines for different 
+ * search methods such as exhaustive search and different types of random search.
  */
 template<typename Int, typename Real>
 struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
@@ -119,7 +127,6 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     // There is only a single component
     Int getComponentModulus(int k = 0) const override {return getModulus();}
     long getComponentOrder(int k = 0) const override {return getOrder();}
-
     
     MRGLattice<Int, Real>* nextGeneratorExhaustive() override;
 
@@ -247,7 +254,17 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
   //===========================================================================
 
   /**
-  * Description.
+   * nextGeneratorRandomBox() performs a random-box search over the admissible
+   * MRG coefficient region. It first selects random subregions, or boxes, within
+   * the prescribed coefficient bounds. Then, each selected box is checked 
+   * exhaustively. The side lengths of the boxes are specified by the subregion 
+   * sizes h_i in the configuration.
+   *
+   * If the search is restricted to generators with maximal period, the maximal
+   * period condition is checked before constructing the corresponding MRG
+   * lattice. When possible, candidates sharing the same last coefficient a_k are
+   * skipped together if this value cannot lead to maximal period, avoiding
+    * unnecessary lattice constructions.
   */
   template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real>::nextGeneratorRandomBox()
   {
@@ -324,10 +341,16 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     return nullptr;
 }
 
-/*
-* For each good a_k, we sample N_a independent vectors for the other
-* coordinates. This is the base case, the simplest.
-*/
+/**
+ * nextGeneratorRandomAkFixed() performs a random search organized around the
+ * last multiplier a_k. It first draws values of a_k at random and
+ * retains only those that satisfy the maximal-period requirement, if this
+ * requirement is chosen by the user.
+ *
+ * For each accepted value of a_k, the method generates a prescribed number of
+ * random coefficient vectors by drawing the remaining coefficients
+ * a_1, ..., a_{k-1} independently within their configured bounds. 
+ */
 template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real>::nextGeneratorRandomAkFixed()
 {  
     NTL::Vec<NTL::ZZ> aa;
@@ -378,8 +401,18 @@ template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real
     return nullptr;
 }
 
-template<typename Int, typename Real>
-MRGLattice<Int, Real>* SearchMRG<Int, Real>::nextGeneratorRandomAkFixedBox()
+/**
+ * nextGeneratorRandomAkFixedBox() performs a hybrid random-box search organized
+ * around the las mulitpiliers a_k. It first draws values of a_k at
+ * random and retains only those that satisfy the maximal-period requirement, if
+ * wanted by the user.
+ *
+ * For each accepted value of a_k, the method draws a random box for the
+ * remaining coefficients a_1, ..., a_{k-1}. The box is defined by the configured
+ * subregion sizes h_i for i = 1, ..., k-1, while a_k remains fixed, corresponding
+ * to h_k = 1. The points in this box are then checked exhaustively.
+ */
+template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real>::nextGeneratorRandomAkFixedBox()
 {
     /*
      * h_k is assumed to be 1. Thus the box is only over the coordinates

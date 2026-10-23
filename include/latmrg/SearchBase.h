@@ -91,10 +91,13 @@ struct ConfigMerit
 
 
 /**
- * Common configuration details for all seearch operations.
+ * SearchBase contains the common configuration data and search logic used by
+ * all (RNG type specific) search classes.
  *
- * This struct contains only settings that are independent of
- * the generator type.
+ * Generator-specific subclasses provide the methods that construct candidate
+ * lattices, while SearchBase implements the shared functionality such as the
+ * main facility to perform searches, storage of the best retained lattices, 
+ * progress reporting, and result printing.
  */
 template<typename Int, typename Real, typename Lat>
 struct SearchBase
@@ -207,10 +210,10 @@ struct SearchBase
     virtual Int getComponentModulus(int k) const = 0;
     virtual long getComponentOrder(int k) const = 0;
 
-    /**
+  /**
    * This abstract method looks for the next generator based on the chosen configuration.
    * It uses the variable currentGen to calculate the next generator in the list.
-   * nextGenerator() is performing an exhaustive search. This method needs to
+   * nextGeneratorExhaustive() is performing an exhaustive search. This method needs to
    * be implemented separately for the different types of lattices.
    */
    virtual Lat* nextGeneratorExhaustive() = 0;
@@ -384,7 +387,6 @@ struct SearchBase
       }
       *out << (onlyMaxPeriod()?"Full":"Any") << " period length\n";
       }
-
     
     *out << "\nTest:\n" << (configFOM.best?"Best":"Worst") << " generators \n";
     *out << "Figure of Merit M with vector t=" << configFOM.t << "\n";
@@ -487,6 +489,10 @@ struct SearchBase
     return 0;
   }
 
+  /**
+  * This method returns the merit of the best retained lattice.
+  * Returns NaN if no lattice has been retained.
+  */
   template<typename Int, typename Real, typename Lat> double SearchBase<Int, Real, Lat>::getBestMerit()
   {
     auto& list = bestLattices.getList();
