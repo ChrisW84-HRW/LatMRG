@@ -47,33 +47,33 @@ using namespace LatMRG;
 // Only the last two lines are really performing the seek.
 int main() {
   
-  cout << "The purpose is to test Search.h.\n";
+  cout << "The purpose is to test the search for good generators.\n";
 
-  
+  int k = 2;
 
   // Variables necessary for MRG calculations
   NTL::Vec<int64_t> t; // The t-vector for the FOM.
-  t.SetLength(3);
+  t.SetLength(k+1);
   t[0] = 8;    // We look at successive coordinates in up to t[0] dimensions.
   t[1] = 5;    // Then pairs and triples up to coord. 5.
   t[2] = 5;
   const NTL::ZZ m = NTL::to_ZZ("9223372036854773561");  // modulus  
   NTL::Vec<NTL::ZZ> b; // low boundaries for the multipliers
-  b.SetLength(3);
+  b.SetLength(k+1);
   b[1] = 1145902849652723;  
   b[2] = 5189485190151516; 
   NTL::Vec<NTL::ZZ> c;
-  c.SetLength(3); // upper boundaries for the multipliers
+  c.SetLength(k+1); // upper boundaries for the multipliers
   c[1] = 1245902849752955;
   c[2] = 5289485190251758;
   
   NTL::Vec<NTL::ZZ> h;
-  h.SetLength(3); // sizes for the box search
+  h.SetLength(k+1); // sizes for the box search
   h[1] = 10;
   h[2] = 10;
   const int64_t maxdim(16);
   ReducerBB<Int, Real> red(maxdim);
-  NormaBestLat norma(log(m), 1, maxdim);
+  NormaBestLat norma(-log(m), k, maxdim);
   WeightsUniform weights(1.0);
 
   

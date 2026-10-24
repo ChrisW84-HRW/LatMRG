@@ -218,7 +218,10 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
         }
         ++this->currentGen;
         
-        if (this->onlyMaxPeriod() && !getMRGComponent().maxPeriod(aa)) {continue;}
+        if (this->onlyMaxPeriod() && !getMRGComponent().maxPeriod(aa)) {
+            if (!countBadAk) --this->currentGen;
+            continue;
+        }
 
         return new MRGLattice<Int, Real>(getModulus(), aa, this->maxdim);
     }
@@ -244,7 +247,10 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     {
         for (int i = 1; i <= getOrder(); i++) aa[i] = randInt(getLowBoundary(i),  getHighBoundary(i));
         ++this->currentGen;
-        if (this->onlyMaxPeriod() && !getMRGComponent().maxPeriod(aa))  continue;
+        if (this->onlyMaxPeriod() && !getMRGComponent().maxPeriod(aa)) {
+            if (!countBadAk) --this->currentGen;
+            continue;
+        } 
 
         return new MRGLattice<Int, Real>(getModulus(), aa, this->maxdim);
     }
@@ -383,8 +389,8 @@ template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real
                  * Check whether this a_k has maximal period.
                  */
                 if (this->onlyMaxPeriod()) {
-                    if (!getMRGComponent().maxPeriod(aa)) {
-                        ++this->currentGen;
+                    if (!getMRGComponent().maxPeriod(aa)) {                        
+                        if (countBadAk) ++this->currentGen;
                         continue;
                     }
                 }
@@ -466,8 +472,8 @@ template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real
                  * only once, using the first point of the box.
                  */
                 if (this->onlyMaxPeriod()) {
-                    if (!getMRGComponent().maxPeriod(aa)) {
-                        ++this->currentGen;
+                    if (!getMRGComponent().maxPeriod(aa)) {                        
+                        if (countBadAk) ++this->currentGen;
                         continue;
                     }
                 }
