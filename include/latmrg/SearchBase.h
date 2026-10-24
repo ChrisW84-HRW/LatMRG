@@ -151,7 +151,6 @@ struct SearchBase
     bool getProgress() const {return progress;}
     void setProgress(bool value) {progress = value;}
     bool onlyMaxPeriod() const { return permax;}
-
     // Get and set functions for the figure of merit
     void setFOM(const NTL::Vec<int64_t>& tValue, LatticeTester::Normalizer* normaValue, 
         LatticeTester::ReducerBB<Int, Real>* redValue, LatticeTester::Weights* weightsValue)
@@ -195,11 +194,13 @@ struct SearchBase
      * ~ SearhBase is the virtual destructor
      * createComponents() initializes the correct number of components as defined by numComp
      * getModulus() gets the modulus
+     * getModulus() gets the order
      * getComponentModulus() gets the modulus of a single component
      * getComponentOrder() gets the order of a single component
      */
     virtual ~SearchBase() = default;
     virtual Int getModulus() const = 0;
+    virtual long getOrder() const = 0;
     virtual Int getComponentModulus(int k) const = 0;
     virtual long getComponentOrder(int k) const = 0;
 
@@ -359,28 +360,25 @@ struct SearchBase
     
     *out << "\nSearch: A search program for Random Number Generators\n";
     *out << ((getNumComp()>1)?"Combined generators":"Simple generator")
-      << " configuration" << ((getNumComp()>1)?"s":"") << "\n\n";
-
-      
+      << " configuration" << ((getNumComp()>1)?"s":"") << "\n\n";      
     
-    for (int k = 0; k < getNumComp(); k++) {
-      if (k > 0) *out << "\n";
-      if (getNumComp() >1) *out << "Component " << k+1 << ":\n";
-      *out << "Generator type: " << toStringGenType(getGenType()) << "\n";
-      if (getGenType() == MRG) {
-        *out << "Modulo:         m = " << getComponentModulus(k); //" = " << conf.genComponents[k]->getB() << "^"
-          //<< conf.fact[k]->getE();
-        // if (conf.fact[k]->getR() > 0) *out << "+" << conf.genComponents[k]->getR();
-        // if (conf.fact[k]->getR() < 0) *out << conf.genComponents[k]->getR();
-
+    if (getGenType() == MRG) {
+        *out << "Modulo:         m = " << getModulus();
         *out << "\n";
-        *out << "Order:          k = " << getComponentOrder(k) << "\n";
-      } else if (getGenType() == MWC) {
-      } else if (getGenType() == MMRG) {
+        *out << "Order:          k = " << getOrder() << "\n";
+    } else if (getGenType() == MWC) {
+    } else if (getGenType() == MMRG) {
+    } else if (getGenType() == COMBO) {
+      for (int k = 0; k < getNumComp(); k++) {
+       if (k > 0) *out << "\n";
+       if (getNumComp() >1) *out << "Component " << k+1 << ":\n";
+       *out << "Modulo:         m = " << getComponentModulus(k);
+       *out << "\n";
+       *out << "Order:          k = " << getComponentOrder(k) << "\n";
+      //*out << "Generator type: " << toStringGenType(getGenType()) << "\n";
       }
-      *out << (onlyMaxPeriod()?"Full":"Any") << " period length\n";
-      }
-    
+    }
+    *out << (onlyMaxPeriod()?"Full":"Any") << " period length\n";
     *out << "\nTest:\n" << (configFOM.best?"Best":"Worst") << " generators \n";
     *out << "Figure of Merit M with vector t=" << configFOM.t << "\n";
     *out << "for the " << (configFOM.dualLattice?"dual":"primal") << " lattice \n";
@@ -389,16 +387,13 @@ struct SearchBase
     if (print_time) {
       *out << "Allowed running time: " << getTimeLimit() << "s.\n";
       *out << "Actual CPU time: " << timer.toString() << "\n\n";
-    }
-    
+    }    
 
     *out << "Retained generators (from best to worst):\n";
     for (auto it = bestLattices.getList().begin(); it!= bestLattices.getList().end(); it++) {
       *out << (*it).getBasis() << "\n";
       *out << (*it).toStringMerit() << "\n";
-    }
-    
-  
+    }  
   }
 
   //===========================================================================
@@ -476,9 +471,6 @@ struct SearchBase
       if (progress) old = printProgress(old);
     } while (!timer.timeOver(getTimeLimit()) && lat);
     old = printProgress(old);
-    //std::cout << "\n \n \n !!! END !!! \n \n \n";
-    //std::cout << "CurrentGen: " << currentGen;
-    //std::cout << "\n \n \n !!! END !!! \n \n \n";
     return 0;
   }
 

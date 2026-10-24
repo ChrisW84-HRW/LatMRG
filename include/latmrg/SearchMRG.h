@@ -70,7 +70,7 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     bool countBadAk = false;
                        
     // Get and set methods
-    Int getModulus() const {return modulus;}
+    Int getModulus() const override {return modulus;}
     void setModulus(const Int& value) {modulus = value;}
     Int getBase() const {return base;}
     void setBase(const Int& value) {base = value;}
@@ -78,7 +78,7 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     void setExponent(const Int& value) {exponent = value;}
     Int getRest() const {return rest;}
     void setRest(const Int& value) {rest = value;}
-    long getOrder() const {return order;}
+    long getOrder() const override {return order;}
     void setOrder(long value) {order = value;}
     const IntVec& getLowBoundaries() const {return lowBoundaries;}
     void setLowBoundaries(const IntVec& values) {lowBoundaries = values;}
@@ -124,9 +124,11 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     int getNumRandomAk() const {return numRandomAk;}
     bool getCountBadAk() const {return countBadAk;};
     void setCountBadAk(bool value) {countBadAk = value;}
-    // There is only a single component
-    Int getComponentModulus(int k = 0) const override {return getModulus();}
-    long getComponentOrder(int k = 0) const override {return getOrder();}
+    // These functions are not called at all but need to be there,
+    // because we need them for combined MRGs and thus virtual methods
+    // have been defined in the SearchBase class.
+    virtual Int getComponentModulus(int k) const { return getModulus();}
+    virtual long getComponentOrder(int k) const { return getOrder();}
     
     MRGLattice<Int, Real>* nextGeneratorExhaustive() override;
 
@@ -171,7 +173,7 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     }
 
     /*
-    * Helper Lattice
+    * This lattice is re-used as output of nextGenerator-type functions
     */
     std::unique_ptr<MRGLattice<Int, Real>> WorkingLattice;
 
