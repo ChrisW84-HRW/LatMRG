@@ -80,11 +80,10 @@ struct ConfigMerit
     double minMerit = 0.0;
     double maxMerit = 1.0;
 
-    #ifdef LATMRG_SEARCH
-        bool best = true;
-        int num_gen = 0;
-        double currentMerit = double(0);
-    #endif
+    bool best = true;
+    int num_gen = 0;
+    double currentMerit = double(0);
+    
     
     int no_bestGen = 5; // Number of best generators to be kept 
 };
@@ -124,10 +123,8 @@ struct SearchBase
 
     double timeLimit = 600.0; // CPU time limit in seconds.
 
-    #ifdef LATMRG_SEARCH
-        bool progress = true; // Prints the program progress between generators
-    #endif
-
+    bool progress = true; // Prints the program progress between generators
+    
     ConfigMerit<Int, Real> configFOM;
 
     // Get and set methods
@@ -151,10 +148,8 @@ struct SearchBase
     void setSearchMethod(SearchMethod value) {searchMethod = value;}
     double getTimeLimit() const {return timeLimit;}
     void setTimeLimit(double value) {timeLimit = value;}
-    #ifdef LATMRG_SEARCH
-        bool getProgress() const {return progress;}
-        void setProgress(bool value) {progress = value;}
-    #endif
+    bool getProgress() const {return progress;}
+    void setProgress(bool value) {progress = value;}
     bool onlyMaxPeriod() const { return permax;}
 
     // Get and set functions for the figure of merit
@@ -186,14 +181,12 @@ struct SearchBase
     void setMinMerit(double value) {configFOM.minMerit = value;}
     double getMaxMerit() const {return configFOM.maxMerit;}
     void setMaxMerit(double value) {configFOM.maxMerit = value;}
-    #ifdef LATMRG_SEARCH
-        bool getBest() const {return configFOM.best;}
-        void setBest(bool value) {configFOM.best = value;}
-        int getNumGen() const {return configFOM.num_gen;}
-        void setNumGen(int value) {configFOM.num_gen = value;}
-        double getCurrentMerit() const {return configFOM.currentMerit;}
-        void setCurrentMerit(double value) {configFOM.currentMerit = value;}
-    #endif
+    bool getBest() const {return configFOM.best;}
+    void setBest(bool value) {configFOM.best = value;}
+    int getNumGen() const {return configFOM.num_gen;}
+    void setNumGen(int value) {configFOM.num_gen = value;}
+    double getCurrentMerit() const {return configFOM.currentMerit;}
+    void setCurrentMerit(double value) {configFOM.currentMerit = value;}
     int getNoBestGen() const {return configFOM.no_bestGen;}
     void setNoBestGen(int value) {configFOM.no_bestGen = value;}
 
@@ -285,7 +278,7 @@ struct SearchBase
     /**
     * The current lattice which is analyzed.
     */
-    std::unique_ptr<Lat> lat;
+   Lat* lat = nullptr;
 
     /**
     * Figure of merit objects for the primal and dual lattice.
@@ -415,8 +408,8 @@ struct SearchBase
   * The parameter *generator defines the method of the search, e.g.,
   * a random or an exhaustive search.
   */
-    template<typename Int, typename Real, typename Lat> template<typename Generator>
-    int SearchBase<Int, Real, Lat>::performSearch(Lat* (Generator::*generator)())  {  
+  template<typename Int, typename Real, typename Lat> template<typename Generator>
+  int SearchBase<Int, Real, Lat>::performSearch(Lat* (Generator::*generator)())  {  
     
     assert(getNumComp() > 0);
     assert(getCalculateFOM() || getPermax());
@@ -446,10 +439,10 @@ struct SearchBase
 
     // Loop through all lattices
     do {      
-      lat.reset((static_cast<Generator*>(this)->*generator)());
+      lat = (static_cast<Generator*>(this)->*generator)();
       if (!lat) continue;   
 
-      fomData.setLattice(lat.get());
+      fomData.setLattice(lat);
       
       /** If the FOM is calculated, then the lattice is only added if its FOM is among 
        *  the best ones. If we do not calculate the FOM, we just add the lattices with 

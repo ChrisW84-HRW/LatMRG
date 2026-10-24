@@ -144,11 +144,13 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
         currentSubIndex = 0;
         hasLastAk = false;
         lastMaxPeriodResult = false;
-        alpha.SetLength(0);
         mrg.reset();
         currentAkTrial = 0;
         currentAkSample = 0;
         hasCurrentAk = false;
+        WorkingLattice = std::make_unique<MRGLattice<Int, Real>>(getModulus(), getLowBoundaries(), this->maxdim);
+        aa.SetLength(getOrder() + 1);
+        alpha.SetLength(getOrder() + 1);
     }
 
     private:
@@ -167,6 +169,16 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
         }
         return *mrg;
     }
+
+    /*
+    * Helper Lattice
+    */
+    std::unique_ptr<MRGLattice<Int, Real>> WorkingLattice;
+
+    /*
+    * Vector for creating the multipliers
+    */
+    NTL::Vec<NTL::ZZ> aa;
 
     /*
     * Helper variables for box search
@@ -203,8 +215,6 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
   {    
     Int range, val;
     Int tmp;
-    NTL::Vec<NTL::ZZ> aa;
-    aa.SetLength(getOrder() + 1);
     while (this->currentGen < this->getMaxGen() &&
            this->currentGen < getNoMultipliers())
     {
@@ -222,8 +232,8 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
             if (!countBadAk) --this->currentGen;
             continue;
         }
-
-        return new MRGLattice<Int, Real>(getModulus(), aa, this->maxdim);
+        WorkingLattice->setaa(aa);
+        return WorkingLattice.get();
     }
     return nullptr;
   }
@@ -240,9 +250,6 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
   template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real>::nextGeneratorRandom()
   {
     
-    NTL::Vec<NTL::ZZ> aa;
-    aa.SetLength(getOrder() + 1);
-
     while (this->currentGen < this->getMaxGen())
     {
         for (int i = 1; i <= getOrder(); i++) aa[i] = randInt(getLowBoundary(i),  getHighBoundary(i));
@@ -251,8 +258,8 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
             if (!countBadAk) --this->currentGen;
             continue;
         } 
-
-        return new MRGLattice<Int, Real>(getModulus(), aa, this->maxdim);
+        WorkingLattice->setaa(aa);
+        return WorkingLattice.get();
     }
     return nullptr;
   }
@@ -277,10 +284,6 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     Int subregionTotal(1);
     Int akStepSize(1);
     
-    NTL::Vec<NTL::ZZ> aa;
-    aa.SetLength(getOrder() + 1);
-    alpha.SetLength(getOrder() + 1);
-
     // Calculate subregion size
     for (int i = 1; i <= getOrder(); i++) {
        Int hi = getSubregionSize(i);
@@ -340,8 +343,8 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
             }
         }
         ++currentSubIndex;
-
-        return new MRGLattice<Int, Real>(getModulus(), aa, this->maxdim);
+        WorkingLattice->setaa(aa);
+        return WorkingLattice.get();
     }
     
     return nullptr;
@@ -359,9 +362,6 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
  */
 template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real>::nextGeneratorRandomAkFixed()
 {  
-    NTL::Vec<NTL::ZZ> aa;
-    aa.SetLength(getOrder() + 1);
-
     while (this->currentGen < this->getMaxGen() &&
            currentAkTrial < getNumRandomAk())
     {
@@ -402,7 +402,9 @@ template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real
         }
         ++currentAkSample;
         ++this->currentGen;
-        return new MRGLattice<Int, Real>(getModulus(), aa, this->maxdim);
+        
+        WorkingLattice->setaa(aa);
+        return WorkingLattice.get();
     }
     return nullptr;
 }
@@ -429,11 +431,6 @@ template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real
         Int hi = getSubregionSize(i);
         boxSize *= hi;
     }
-
-    NTL::Vec<NTL::ZZ> aa;
-    aa.SetLength(getOrder() + 1);
-
-    alpha.SetLength(getOrder() + 1);
 
     while (this->currentGen < this->getMaxGen() &&
            (hasCurrentAk || currentAkTrial < getNumRandomAk()))
@@ -500,8 +497,9 @@ template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real
 
         ++currentSubIndex;
         ++this->currentGen;
-
-        return new MRGLattice<Int, Real>(getModulus(), aa, this->maxdim);
+        
+        WorkingLattice->setaa(aa);
+        return WorkingLattice.get();
     }
 
     return nullptr;

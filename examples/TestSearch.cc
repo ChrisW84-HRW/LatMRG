@@ -17,8 +17,6 @@
 
 #define TYPES_CODE  ZD     // Int = ZZ, Real = double
 
-#define LATMRG_SEARCH
-
 #include <iostream>
 #include <cstdint>
 #include <memory>
