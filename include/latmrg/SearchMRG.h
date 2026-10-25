@@ -130,7 +130,6 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
         currentAkSample = 0;
         hasCurrentAk = false;
         WorkingLattice = std::make_unique<MRGLattice<Int, Real>>(this->getModulus(), getLowBoundaries(), this->maxdim);
-        aa.SetLength(this->getOrder() + 1);
         alpha.SetLength(this->getOrder() + 1);
     }
 
