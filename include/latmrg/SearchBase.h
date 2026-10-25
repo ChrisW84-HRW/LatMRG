@@ -72,83 +72,86 @@ struct SearchBase
     /**
      * We need to make explicit the type of the Configuration to have it available for necessary case distinctions.
      */
-    explicit SearchBase(GenType type) : genType(type), bestLattices(no_bestGen, best) {}
+    explicit SearchBase(GenType type) : genType(type), bestLattices(numBestGen, bestFOM) {}
 
-    GenType genType;   // Type of generator, currently MRG or MWC.
-
-    long numComp = 1; // Number of components.  If > 1, we have a combined generator.
-    int64_t maxdim = 0; // Maximal dimension of the lattice
-
-    bool permax = true; // When true, we retain only max-period generators. Default is true.
-
-    bool outputToGenFile = false; // When true, the output is written to a .gen file instead of the terminal
-    std::string filename; // Name of the .gen file
-
-    int max_gen = 10; // Maximal number of generators to be tested
-
-    LatticeType latticeType; // The type of lattice that is constructed (see EnumTypes).
-    SearchMethod searchMethod;  // The method of search for the search (exhaustive or random).
-
-    double timeLimit = 600.0; // CPU time limit in seconds.
-
-    bool progress = true; // Prints the program progress between generators
-
-    
-    bool best = true; // Want to keep the best/worst FoMs
-    int no_bestGen = 5; // Number of best generators to be kept 
+    // Lattice specific parameters
+    GenType genType;   // Type of generator, currently MRG, MWC or COMBO.
+    long numComp = 1; // Number of components.  If > 1, we have a combined generator.    
     bool dualLattice = false; // Work with primal/dual lattice
     NormType norm = L2NORM; // Norm Type
+    int64_t maxdim = 0; // Maximal dimension of the lattice
+    Int modulus;   // The modulus of the lattice
+    long order;    // The order k of the generator
+
+    // Settings for the search
+    bool bestFOM = true; // Want to keep the best/worst FoMs, detault is true
+    bool maxPeriod = true; // When true, we retain only max-period generators. default is true.
+    int numBestGen = 5; // Number of best generators to be kept, default is 5
     bool calculateFOM = true; // Decides whether we want to calculate the FOM
+    int maxNumGen = 1000; // Maximal number of generators to be tested, default = 1000
+
+    // Technical setting
+    double timeLimit = 600.0; // CPU time limit in seconds. default = 600
+    bool print_time = true; // Decides if running time is printed in printResults
+    bool progress = true; // Prints the program progress between generators, default = true    
+    bool outputToGenFile = false; // When true, the output is written to a .gen file instead of the terminal, default false
+    std::string filename = "outputSearch.gen"; // Name of the .gen file, default = "outputSearch.gen"
+    
+    /**
+     * Pointer to a figure of merit object
+     */
+    FigureOfMeritM<Int, Real>* fom = nullptr;
     
 
-    FigureOfMeritM<Int, Real>* fom = nullptr;
-
-    // Get and set methods
+    // Get and set methods    
     GenType getGenType() const {return genType;}
     void setGenType(GenType value) {genType = value;}
     long getNumComp() const {return numComp;}
     void setNumComp(long value) {numComp = value;}
+    bool getDualLattice() const {return dualLattice;}
+    void setDualLattice(bool value) {dualLattice = value;}
+    NormType getNorm() const { return norm;}
+    void setNorm(NormType value) { norm = value;}
     int64_t getMaxDim() const {return maxdim;}
-    void setMaxDim(int64_t value) {maxdim = value;}
-    bool getPermax() const {return permax;}
-    void setPermax(bool value) {permax = value;}
+    void setMaxDim(int64_t value) {maxdim = value;}    
+    Int getModulus() const {return modulus;}
+    void setModulus(Int value) {modulus = value;}
+    long getOrder() const {return order;}
+    void setOrder(long value) {order = value;}
+
+    bool getBestFOM() const {return bestFOM;}
+    void setBestFOM(bool value) {bestFOM = value;}
+    bool getMaxPeriod() const {return maxPeriod;}
+    void setMaxPeriod(bool value) {maxPeriod = value;}
+    int getNumBestGen() const {return numBestGen;}
+    void setNumBestGen(int value) {numBestGen = value;}
+    bool getCalculateFOM() const {return calculateFOM;}
+    void setCalculateFOM(bool value) {calculateFOM = value;}
+    int getMaxNumGen() const {return maxNumGen;}
+    void setMaxNumGen(int value) {maxNumGen = value;}
+
+    double getTimeLimit() const {return timeLimit;}
+    void setTimeLimit(double value) {timeLimit = value;}
+    bool getPrintTime() const { return print_time;}
+    void setPrintTime(bool value) { print_time = value;}
+    bool getProgress() const {return progress;}
+    void setProgress(bool value) {progress = value;}
     bool getOutputToGenFile() const {return outputToGenFile;}
     void setOutputToGenFile(bool value) {outputToGenFile = value;}
     const std::string& getFilename() const {return filename;}
     void setFilename(const std::string& value) {filename = value;}
-    int getMaxGen() const {return max_gen;}
-    void setMaxGen(int value) {max_gen = value;}
-    LatticeType getLatticeType() const {return latticeType;}
-    void setLatticeType(LatticeType value) {latticeType = value;}
-    SearchMethod getSearchMethod() const {return searchMethod;}
-    void setSearchMethod(SearchMethod value) {searchMethod = value;}
-    double getTimeLimit() const {return timeLimit;}
-    void setTimeLimit(double value) {timeLimit = value;}
-    bool getProgress() const {return progress;}
-    void setProgress(bool value) {progress = value;}
-    bool onlyMaxPeriod() const { return permax;}
-    bool getBest() const {return best;}
-    void setBest(bool value) {best = value;}
-    int getNoBestGen() const {return no_bestGen;}
-    void setNoBestGen(int value) {no_bestGen = value;}
-    void newsetFOM(FigureOfMeritM<Int, Real> & value) {fom = &value;}
-    void setCalculateFOM(bool value) {calculateFOM = value;}
-    bool getCalculateFOM() const {return calculateFOM;}
-    bool getDualLattice() const {return dualLattice;}
-    void setDualLattice(bool value) {dualLattice = value;}
+
+    void setFOM(FigureOfMeritM<Int, Real> & value) {fom = &value;}
 
     /**
      * These are different virtual methods to be specified by the subclasses.
      * ~ SearhBase is the virtual destructor
      * createComponents() initializes the correct number of components as defined by numComp
-     * getModulus() gets the modulus
-     * getModulus() gets the order
+     * getOrder() gets the order
      * getComponentModulus() gets the modulus of a single component
      * getComponentOrder() gets the order of a single component
      */
     virtual ~SearchBase() = default;
-    virtual Int getModulus() const = 0;
-    virtual long getOrder() const = 0;
     virtual Int getComponentModulus(int k) const = 0;
     virtual long getComponentOrder(int k) const = 0;
 
@@ -210,6 +213,8 @@ struct SearchBase
     */
     double getBestMerit();
 
+    // Technical variables
+
     /**
     * Counter for the current RNG.
     */
@@ -221,13 +226,10 @@ struct SearchBase
      */    
     MeritList<Lat> bestLattices;
 
-    
-    private:
-        
     /**
     * The current lattice which is analyzed.
     */
-   Lat* lat = nullptr;
+    Lat* lat = nullptr;
 
     /**
     * Program time.
@@ -235,17 +237,11 @@ struct SearchBase
     Chrono timer; 
 
     /**
-     * Decides if runnning time is printed in printResults().
-     */
-    bool print_time = true;
-
-    /**
      * Output streams for terminal and file
      */
     std::ostream* out = &std::cout;
     std::ofstream file;
    
-
 };
     
 //============================================================================
@@ -261,7 +257,7 @@ struct SearchBase
     // search terminates as soon as either the time limit or the generator limit
     // is reached, we display the larger of the two relative progresses.
     double time_progress = double(timer.val(Chrono::SEC)) / getTimeLimit();
-    double gen_progress  = double(currentGen) / getMaxGen();
+    double gen_progress  = double(currentGen) / getMaxNumGen();
 
     int per_80 = static_cast<int>(80 * std::max(time_progress, gen_progress));
     if (per_80 > 80) per_80 = 80;
@@ -320,12 +316,12 @@ struct SearchBase
       //*out << "Generator type: " << toStringGenType(getGenType()) << "\n";
       }
     }
-    *out << (onlyMaxPeriod()?"Full":"Any") << " period length\n";
-    *out << "\nTest:\n" << (best?"Best":"Worst") << " generators \n";
+    *out << (getMaxPeriod()?"Full":"Any") << " period length\n";
+    *out << "\nTest:\n" << (bestFOM?"Best":"Worst") << " generators \n";
     *out << "Figure of Merit M with vector t=" << fom.getTVector() << "\n";
     *out << "for the " << (dualLattice?"dual":"primal") << " lattice \n";
-    *out << "Number of generators kept: " << no_bestGen << "\n";
-    *out << "Number of generators tested: " << getMaxGen() << "\n\n"; 
+    *out << "Number of generators kept: " << numBestGen << "\n";
+    *out << "Number of generators tested: " << getMaxNumGen() << "\n\n"; 
     if (print_time) {
       *out << "Allowed running time: " << getTimeLimit() << "s.\n";
       *out << "Actual CPU time: " << timer.toString() << "\n\n";
@@ -349,11 +345,11 @@ struct SearchBase
   int SearchBase<Int, Real, Lat>::performSearch(Lat* (Generator::*generator)())  {  
     
     assert(getNumComp() > 0);
-    assert(getCalculateFOM() || getPermax());
+    assert(getCalculateFOM() || getMaxPeriod());
 
     currentGen = 0;
     resetGeneratorState();
-    bestLattices = MeritList<Lat>(no_bestGen, best);
+    bestLattices = MeritList<Lat>(numBestGen, bestFOM);
 
     int old = 0;
     // Launching the tests
@@ -389,7 +385,7 @@ struct SearchBase
         fomData.setMeritProj(fom->getMinMeritProj());
         fomData.setMeritSqlen(fom->getMinMeritSqlen());
         bestLattices.add(fomData);
-        if (best)
+        if (bestFOM)
           fom->setLowBound(bestLattices.getSmallestMerit());
       }
       else {

@@ -79,18 +79,17 @@ int main() {
   
   // Define all the necessary details of the configuration  
   SearchMRG<Int, Real> searcher;
-  searcher.newsetFOM(fom);
+  searcher.setFOM(fom);
   searcher.setDualLattice(true);
   searcher.setCalculateFOM(true);
   searcher.setMaxDim(maxdim); 
-  searcher.setPermax(true);
+  searcher.setMaxPeriod(true);
+  searcher.setMaxNumGen(100000);  
   searcher.setOutputToGenFile(false);
   searcher.setFilename("test.gen");  
-  searcher.setMaxGen(100000);  
   // Set paramters for box search
   searcher.setSubregionSize(h);
   searcher.setNumRandomRegions(10000);
-  searcher.setNumRandomAk(100000);
   searcher.setNumRandomPointsPerAk(100);
   searcher.setCountBadAk(false);
   
