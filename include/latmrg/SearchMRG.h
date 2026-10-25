@@ -50,10 +50,10 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     IntVec highBoundaries; // Default values are 1 and m-1 
 
     // Settings for random next generator algorithms
-    long numRandomRegions = 1;   // For search of random boxes (cooresponds to N_r in the guide)
+    long numRandomRegions = 1;   // For search of random boxes (corresponds to N_r in the guide)
     IntVec subregionSize;        // The allowed sizes of the boxes h_i, indexed from 1 to k
-    int numRandomPointsPerAk = 1; // Number of random points per a_k which satisfies the maximal period conditon; default = 1
-    int numRandomAk = 1000; // Maximal number of random values for a_1, ..., a_{k-1} drawn for fixed a_k
+    int numRandomPointsPerAk = 1; // Number of random values for a_1, ..., a_{k-1} per a_k which satisfies the maximal period condition; default = 1
+    int numRandomAk = 1000; // Maximal number of random values fixed a_k
     bool countBadAk = false; // Count a_k's which do not have maximal period in the total number of generators checked
 
     // Specific constraints on the generators
@@ -130,6 +130,7 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
         currentAkSample = 0;
         hasCurrentAk = false;
         WorkingLattice = std::make_unique<MRGLattice<Int, Real>>(this->getModulus(), getLowBoundaries(), this->maxdim);
+        aa.SetLength(this->getOrder() + 1);
         alpha.SetLength(this->getOrder() + 1);
     }
 

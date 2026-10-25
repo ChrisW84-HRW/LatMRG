@@ -90,6 +90,7 @@ int main() {
   // Set paramters for box search
   searcher.setSubregionSize(h);
   searcher.setNumRandomRegions(10000);
+  searcher.setNumRandomAk(100000);
   searcher.setNumRandomPointsPerAk(100);
   searcher.setCountBadAk(false);
   
