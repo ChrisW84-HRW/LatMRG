@@ -104,22 +104,33 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     virtual Int getComponentModulus(int k) const { return this->getModulus();}
     virtual long getComponentOrder(int k) const { return this->getOrder();}
 
-    /*
+    /** */
     * Vector for creating the multipliers
     */
     NTL::Vec<NTL::ZZ> aa;
-    
+
+    /**
+     * These methods generate the next MRG candidate according to the selected search strategy
+     * Each method returns the next admissible lattice, or nullptr when its
+     * search limits have been reached.
+     */
     MRGLattice<Int, Real>* nextGeneratorExhaustive() override;
-
     MRGLattice<Int, Real>* nextGeneratorRandom() override;
-
-    MRGLattice<Int, Real>* nextGeneratorRandomBox();
-    
+    MRGLattice<Int, Real>* nextGeneratorRandomBox();    
     MRGLattice<Int, Real>* nextGeneratorRandomAkFixed();
-
     MRGLattice<Int, Real>* nextGeneratorRandomAkFixedBox();
+
+    
+    /**
+     * This method checks whether the generated lattice satisfies the
+     * maximal-period requirement for an MRG.
+     */
     bool checkMaxPeriod(MRGLattice<Int, Real>& lat) override;
 
+    /**
+     * Resets generator-specific state before a new search, so repeated calls
+     * to performSearch() start with a fresh enumeration or random search.
+     */
     void resetGeneratorState() override{
         currentRandomRegion = 0;
         currentSubIndex = 0;
@@ -169,8 +180,7 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     long currentAkTrial = 0;
     long currentAkSample = 0;
     bool hasCurrentAk = false;
-    NTL::ZZ currentAk;
-    
+    NTL::ZZ currentAk;    
 };
 
 //============================================================================
