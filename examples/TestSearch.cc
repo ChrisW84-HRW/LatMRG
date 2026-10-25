@@ -73,12 +73,13 @@ int main() {
   ReducerBB<Int, Real> red(maxdim);
   NormaBestLat norma(-log(m), k, maxdim);
   WeightsUniform weights(1.0);
+  FigureOfMeritDualM<Int, Real> fom(t, weights, norma, &red, true);
 
   
   
   // Define all the necessary details of the configuration  
   SearchMRG<Int, Real> searcher;
-  searcher.setFOM(t, &norma, &red, &weights);  
+  searcher.newsetFOM(fom);
   searcher.setDualLattice(true);
   searcher.setCalculateFOM(true);
   searcher.setMaxDim(maxdim); 

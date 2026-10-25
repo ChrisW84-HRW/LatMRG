@@ -58,38 +58,6 @@ using namespace LatticeTester::Random;
 namespace LatMRG {
 
 /**
- * ConfigMerit stores the information on the figure of merit
- * and how it is computed.
- */
-template<typename Int, typename Real>
-struct ConfigMerit
-{
-    bool calculateFOM = false;
-
-    NTL::Vec<int64_t> t;
-
-    LatticeTester::Weights* weights = nullptr;
-    LatticeTester::Normalizer* norma = nullptr;
-    LatticeTester::ReducerBB<Int, Real>* red = nullptr;
-
-    bool includeFirst = true;
-    bool dualLattice = false;
-
-    LatticeTester::NormType norm = LatticeTester::L2NORM;
-
-    double minMerit = 0.0;
-    double maxMerit = 1.0;
-
-    bool best = true;
-    int num_gen = 0;
-    double currentMerit = double(0);
-    
-    
-    int no_bestGen = 5; // Number of best generators to be kept 
-};
-
-
-/**
  * SearchBase contains the common configuration data and search logic used by
  * all (RNG type specific) search classes.
  *
@@ -104,7 +72,7 @@ struct SearchBase
     /**
      * We need to make explicit the type of the Configuration to have it available for necessary case distinctions.
      */
-    explicit SearchBase(GenType type) : genType(type), bestLattices(configFOM.no_bestGen, configFOM.best) {}
+    explicit SearchBase(GenType type) : genType(type), bestLattices(no_bestGen, best) {}
 
     GenType genType;   // Type of generator, currently MRG or MWC.
 
@@ -124,8 +92,16 @@ struct SearchBase
     double timeLimit = 600.0; // CPU time limit in seconds.
 
     bool progress = true; // Prints the program progress between generators
+
     
-    ConfigMerit<Int, Real> configFOM;
+    bool best = true; // Want to keep the best/worst FoMs
+    int no_bestGen = 5; // Number of best generators to be kept 
+    bool dualLattice = false; // Work with primal/dual lattice
+    NormType norm = L2NORM; // Norm Type
+    bool calculateFOM = true; // Decides whether we want to calculate the FOM
+    
+
+    FigureOfMeritM<Int, Real>* fom = nullptr;
 
     // Get and set methods
     GenType getGenType() const {return genType;}
@@ -151,43 +127,15 @@ struct SearchBase
     bool getProgress() const {return progress;}
     void setProgress(bool value) {progress = value;}
     bool onlyMaxPeriod() const { return permax;}
-    // Get and set functions for the figure of merit
-    void setFOM(const NTL::Vec<int64_t>& tValue, LatticeTester::Normalizer* normaValue, 
-        LatticeTester::ReducerBB<Int, Real>* redValue, LatticeTester::Weights* weightsValue)
-    {
-        configFOM.t = tValue;
-        configFOM.norma = normaValue;
-        configFOM.red = redValue;
-        configFOM.weights = weightsValue;
-    }
-    void setCalculateFOM(bool value) {configFOM.calculateFOM = value;}
-    bool getCalculateFOM() const {return configFOM.calculateFOM;}
-    const NTL::Vec<int64_t>& getT() const {return configFOM.t;}
-    void setT(const NTL::Vec<int64_t>& value) {configFOM.t = value;}
-    LatticeTester::Weights* getWeights() const {return configFOM.weights;}
-    void setWeights(LatticeTester::Weights* value) {configFOM.weights = value;}
-    LatticeTester::Normalizer* getNorma() const {return configFOM.norma;}
-    void setNorma(LatticeTester::Normalizer* value) {configFOM.norma = value;}
-    LatticeTester::ReducerBB<Int, Real>* getRed() const {return configFOM.red;}
-    void setRed(LatticeTester::ReducerBB<Int, Real>* value) {configFOM.red = value;}
-    bool getIncludeFirst() const {return configFOM.includeFirst;}
-    void setIncludeFirst(bool value) {configFOM.includeFirst = value;}
-    bool getDualLattice() const {return configFOM.dualLattice;}
-    void setDualLattice(bool value) {configFOM.dualLattice = value;}
-    LatticeTester::NormType getNorm() const {return configFOM.norm;}
-    void setNorm(LatticeTester::NormType value) {configFOM.norm = value;}
-    double getMinMerit() const {return configFOM.minMerit;}
-    void setMinMerit(double value) {configFOM.minMerit = value;}
-    double getMaxMerit() const {return configFOM.maxMerit;}
-    void setMaxMerit(double value) {configFOM.maxMerit = value;}
-    bool getBest() const {return configFOM.best;}
-    void setBest(bool value) {configFOM.best = value;}
-    int getNumGen() const {return configFOM.num_gen;}
-    void setNumGen(int value) {configFOM.num_gen = value;}
-    double getCurrentMerit() const {return configFOM.currentMerit;}
-    void setCurrentMerit(double value) {configFOM.currentMerit = value;}
-    int getNoBestGen() const {return configFOM.no_bestGen;}
-    void setNoBestGen(int value) {configFOM.no_bestGen = value;}
+    bool getBest() const {return best;}
+    void setBest(bool value) {best = value;}
+    int getNoBestGen() const {return no_bestGen;}
+    void setNoBestGen(int value) {no_bestGen = value;}
+    void newsetFOM(FigureOfMeritM<Int, Real> & value) {fom = &value;}
+    void setCalculateFOM(bool value) {calculateFOM = value;}
+    bool getCalculateFOM() const {return calculateFOM;}
+    bool getDualLattice() const {return dualLattice;}
+    void setDualLattice(bool value) {dualLattice = value;}
 
     /**
      * These are different virtual methods to be specified by the subclasses.
@@ -282,12 +230,6 @@ struct SearchBase
    Lat* lat = nullptr;
 
     /**
-    * Figure of merit objects for the primal and dual lattice.
-    */        
-    // FigureOfMeritM<Int, Real> fomPrimal;
-    // FigureOfMeritDualM<Int, Real> fomDual;
-
-    /**
     * Program time.
     */
     Chrono timer; 
@@ -379,10 +321,10 @@ struct SearchBase
       }
     }
     *out << (onlyMaxPeriod()?"Full":"Any") << " period length\n";
-    *out << "\nTest:\n" << (configFOM.best?"Best":"Worst") << " generators \n";
-    *out << "Figure of Merit M with vector t=" << configFOM.t << "\n";
-    *out << "for the " << (configFOM.dualLattice?"dual":"primal") << " lattice \n";
-    *out << "Number of generators kept: " << configFOM.no_bestGen << "\n";
+    *out << "\nTest:\n" << (best?"Best":"Worst") << " generators \n";
+    *out << "Figure of Merit M with vector t=" << fom.getTVector() << "\n";
+    *out << "for the " << (dualLattice?"dual":"primal") << " lattice \n";
+    *out << "Number of generators kept: " << no_bestGen << "\n";
     *out << "Number of generators tested: " << getMaxGen() << "\n\n"; 
     if (print_time) {
       *out << "Allowed running time: " << getTimeLimit() << "s.\n";
@@ -411,7 +353,7 @@ struct SearchBase
 
     currentGen = 0;
     resetGeneratorState();
-    bestLattices = MeritList<Lat>(configFOM.no_bestGen, configFOM.best);
+    bestLattices = MeritList<Lat>(no_bestGen, best);
 
     int old = 0;
     // Launching the tests
@@ -420,16 +362,12 @@ struct SearchBase
     }
     timer.init();
     
-    IntLattice<Int, Real> proj(getModulus(), configFOM.t.length(), configFOM.norm);    
+    IntLattice<Int, Real> proj(getModulus(), fom->getTVector().length(), norm);    
     FigureOfMeritData<Lat> fomData;
     
-    FigureOfMeritM<Int, Real> fomPrimal(configFOM.t, *configFOM.weights, *configFOM.norma, configFOM.red, configFOM.includeFirst);
-    FigureOfMeritDualM<Int, Real> fomDual(configFOM.t, *configFOM.weights, *configFOM.norma, configFOM.red, configFOM.includeFirst);
     // Variable which depends on whether the FoM is calculated for the primal / dual lattice.
     // Avoids duplicate code.
-    
-    auto& fom = configFOM.dualLattice ? fomDual : fomPrimal;  
-    
+        
     setModulusIntP<Int>(getModulus());   
 
     // Loop through all lattices
@@ -444,28 +382,26 @@ struct SearchBase
        * maximal period to the list.
       */
       if (getCalculateFOM()) { 
-        fomData.setMerit(fom.computeMerit(*lat, proj));  
-        if (configFOM.dualLattice) lat->buildDualBasis(maxdim);
+        fomData.setMerit(fom->computeMerit(*lat, proj));  
+        if (dualLattice) lat->buildDualBasis(maxdim);
         else lat->buildBasis(maxdim);      
-        fomData.setBasis(configFOM.dualLattice ? lat->getDualBasis() : lat->getBasis());
-        fomData.setMeritProj(fom.getMinMeritProj());
-        fomData.setMeritSqlen(fom.getMinMeritSqlen());
+        fomData.setBasis(dualLattice ? lat->getDualBasis() : lat->getBasis());
+        fomData.setMeritProj(fom->getMinMeritProj());
+        fomData.setMeritSqlen(fom->getMinMeritSqlen());
         bestLattices.add(fomData);
-        if (configFOM.best)
-          fom.setLowBound(bestLattices.getSmallestMerit());
-        configFOM.currentMerit = bestLattices.getMerit();
+        if (best)
+          fom->setLowBound(bestLattices.getSmallestMerit());
       }
       else {
         // We need to buiild the basis for the FOM because we currently want to store it.
         // We might want to change this later.
-        if (configFOM.dualLattice) lat->buildDualBasis(getMaxDim());
+        if (dualLattice) lat->buildDualBasis(getMaxDim());
         else lat->buildBasis(getMaxDim());
-        fomData.setBasis(configFOM.dualLattice ? lat->getDualBasis() : lat->getBasis());
+        fomData.setBasis(dualLattice ? lat->getDualBasis() : lat->getBasis());
         bestLattices.addWithoutMerit(fomData);
           if (bestLattices.full())
           break;
       }
-      configFOM.num_gen++;
       // The output is currently only for test purposes
       // *out << fom.computeMerit(*lat, proj) << "\n";
       if (progress) old = printProgress(old);
