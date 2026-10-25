@@ -146,8 +146,6 @@ struct SearchBase
     /**
      * These are different virtual methods to be specified by the subclasses.
      * ~ SearhBase is the virtual destructor
-     * createComponents() initializes the correct number of components as defined by numComp
-     * getOrder() gets the order
      * getComponentModulus() gets the modulus of a single component
      * getComponentOrder() gets the order of a single component
      */
