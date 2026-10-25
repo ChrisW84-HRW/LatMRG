@@ -84,7 +84,7 @@ struct SearchBase
     long order;    // The order k of the generator
 
     // Settings for the search
-    bool bestFOM = true; // Want to keep the best/worst FoMs, detault is true
+    bool bestFOM = true; // Want to keep the best/worst FoMs, default is true
     bool maxPeriod = true; // When true, we retain only max-period generators. default is true.
     int numBestGen = 5; // Number of best generators to be kept, default is 5
     bool calculateFOM = true; // Decides whether we want to calculate the FOM
