@@ -93,6 +93,7 @@ int main() {
   searcher.setNumRandomAk(100000);
   searcher.setNumRandomPointsPerAk(100);
   searcher.setCountBadAk(false);
+  searcher.setProgress(true);
   
   searcher.setModulus(m);
   searcher.setLowBoundaries(b);

@@ -93,7 +93,7 @@ struct SearchBase
     // Technical setting
     double timeLimit = 600.0; // CPU time limit in seconds. default = 600
     bool print_time = true; // Decides if running time is printed in printResults
-    bool progress = true; // Prints the program progress between generators, default = true    
+    bool progress = false; // Prints the program progress between generators, default = false    
     bool outputToGenFile = false; // When true, the output is written to a .gen file instead of the terminal, default false
     std::string filename = "outputSearch.gen"; // Name of the .gen file, default = "outputSearch.gen"
     

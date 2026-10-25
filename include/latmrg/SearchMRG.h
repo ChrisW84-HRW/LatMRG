@@ -104,7 +104,7 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     virtual Int getComponentModulus(int k) const { return this->getModulus();}
     virtual long getComponentOrder(int k) const { return this->getOrder();}
 
-    /** */
+    /**
     * Vector for creating the multipliers
     */
     NTL::Vec<NTL::ZZ> aa;
