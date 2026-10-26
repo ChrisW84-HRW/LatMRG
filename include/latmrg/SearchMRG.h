@@ -105,7 +105,7 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     virtual long getComponentOrder(int k) const { return this->getOrder();}
 
     /**
-    * Vector for creating the multipliers
+    * Vector of multipliers
     */
     NTL::Vec<NTL::ZZ> aa;
 
@@ -145,6 +145,11 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
         alpha.SetLength(this->getOrder() + 1);
     }
 
+    /**
+     * Returns the vector of multipliers
+     */
+    const IntVec& getCurrentCoefficients() const override {return aa;}
+    
     private:
 
     /**

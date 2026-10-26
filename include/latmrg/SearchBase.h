@@ -44,6 +44,7 @@
 #include "latticetester/WeightsUniform.h"
 
 #include "latmrg/FigureOfMeritData.h"
+#include "latmrg/Candidate.h"
 #include "latmrg/EnumTypes.h"
 #include "latmrg/MWCLattice.h"
 #include "latmrg/MRGLattice.h"
@@ -72,7 +73,7 @@ struct SearchBase
     /**
      * We need to make explicit the type of the Configuration to have it available for necessary case distinctions.
      */
-    explicit SearchBase(GenType type) : genType(type), bestLattices(numBestGen, bestFOM) {}
+    explicit SearchBase(GenType type) : genType(type), bestCandidates(numBestGen, bestFOM) {}
 
     // Lattice specific parameters
     GenType genType;   // Type of generator, currently MRG, MWC or COMBO.
@@ -148,10 +149,12 @@ struct SearchBase
      * ~ SearhBase is the virtual destructor
      * getComponentModulus() gets the modulus of a single component
      * getComponentOrder() gets the order of a single component
+     * getCurrentCoefficients() allows to make an independent copy of the vector of multipliers.
      */
     virtual ~SearchBase() = default;
     virtual Int getComponentModulus(int k) const = 0;
     virtual long getComponentOrder(int k) const = 0;
+    virtual const IntVec& getCurrentCoefficients() const = 0;
 
   /**
    * This abstract method looks for the next generator based on the chosen configuration.
@@ -222,7 +225,7 @@ struct SearchBase
      * Object to store the information of the lattices with the
      * best figures of merit.
      */    
-    MeritList<Lat> bestLattices;
+    CandidateList<Int> bestCandidates;
 
     /**
     * The current lattice which is analyzed.
@@ -316,7 +319,7 @@ struct SearchBase
     }
     *out << (getMaxPeriod()?"Full":"Any") << " period length\n";
     *out << "\nTest:\n" << (bestFOM?"Best":"Worst") << " generators \n";
-    *out << "Figure of Merit M with vector t=" << fom.getTVector() << "\n";
+    *out << "Figure of Merit M with vector t=" << fom->getTVector() << "\n";
     *out << "for the " << (dualLattice?"dual":"primal") << " lattice \n";
     *out << "Number of generators kept: " << numBestGen << "\n";
     *out << "Number of generators tested: " << getMaxNumGen() << "\n\n"; 
@@ -326,10 +329,10 @@ struct SearchBase
     }    
 
     *out << "Retained generators (from best to worst):\n";
-    for (auto it = bestLattices.getList().begin(); it!= bestLattices.getList().end(); it++) {
-      *out << (*it).getBasis() << "\n";
-      *out << (*it).toStringMerit() << "\n";
-    }  
+    for (const auto& candidate : bestCandidates.getList()) {
+      *out << "Multipliers: " << candidate.getAa() << "\n";
+      *out << "Merit:      " << candidate.getMerit() << "\n\n";
+    }
   }
 
   //===========================================================================
@@ -347,7 +350,7 @@ struct SearchBase
 
     currentGen = 0;
     resetGeneratorState();
-    bestLattices = MeritList<Lat>(numBestGen, bestFOM);
+    bestCandidates = CandidateList<Int>(numBestGen, bestFOM);
 
     int old = 0;
     // Launching the tests
@@ -369,35 +372,24 @@ struct SearchBase
       lat = (static_cast<Generator*>(this)->*generator)();
       if (!lat) continue;   
 
-      fomData.setLattice(lat);
-      
+      Candidate<Int> candidate{lat->getModulus(), getCurrentCoefficients(), 0.0}; // Copies aa; does not retain a reference to it.
+
       /** If the FOM is calculated, then the lattice is only added if its FOM is among 
-       *  the best ones. If we do not calculate the FOM, we just add the lattices with 
-       * maximal period to the list.
+      *  the best ones. If we do not calculate the FOM, we just add the lattices with 
+      * maximal period to the list.
       */
-      if (getCalculateFOM()) { 
-        fomData.setMerit(fom->computeMerit(*lat, proj));  
-        if (dualLattice) lat->buildDualBasis(maxdim);
-        else lat->buildBasis(maxdim);      
-        fomData.setBasis(dualLattice ? lat->getDualBasis() : lat->getBasis());
-        fomData.setMeritProj(fom->getMinMeritProj());
-        fomData.setMeritSqlen(fom->getMinMeritSqlen());
-        bestLattices.add(fomData);
-        if (bestFOM)
-          fom->setLowBound(bestLattices.getSmallestMerit());
-      }
-      else {
-        // We need to buiild the basis for the FOM because we currently want to store it.
-        // We might want to change this later.
-        if (dualLattice) lat->buildDualBasis(getMaxDim());
-        else lat->buildBasis(getMaxDim());
-        fomData.setBasis(dualLattice ? lat->getDualBasis() : lat->getBasis());
-        bestLattices.addWithoutMerit(fomData);
-          if (bestLattices.full())
+      if (getCalculateFOM()) {
+        candidate.merit = fom->computeMerit(*lat, proj);
+        bestCandidates.add(candidate);
+        // For a best-FOM search, the cutoff is the worst merit retained,
+        // and should be used only once the list is full.
+        if (bestFOM && bestCandidates.full())
+        fom->setLowBound(bestCandidates.getCutoffMerit());
+      } else {
+        bestCandidates.addWithoutMerit(candidate);
+        if (bestCandidates.full())
           break;
       }
-      // The output is currently only for test purposes
-      // *out << fom.computeMerit(*lat, proj) << "\n";
       if (progress) old = printProgress(old);
     } while (!timer.timeOver(getTimeLimit()) && lat);
     old = printProgress(old);
@@ -408,14 +400,13 @@ struct SearchBase
   * This method returns the merit of the best retained lattice.
   * Returns NaN if no lattice has been retained.
   */
-  template<typename Int, typename Real, typename Lat> double SearchBase<Int, Real, Lat>::getBestMerit()
+ template<typename Int, typename Real, typename Lat> double SearchBase<Int, Real, Lat>::getBestMerit()
   {
-    auto& list = bestLattices.getList();
+    const auto& list = bestCandidates.getList();
     if (list.empty())
         return std::numeric_limits<double>::quiet_NaN();
-    return list.front().getMerit();
+    return list.front().merit;
   }
-
 
 } // namespace LatMRG
 
