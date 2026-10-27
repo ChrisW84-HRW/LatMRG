@@ -97,11 +97,12 @@ int main()
     searcher.setDualLattice(true);
     searcher.setCalculateFOM(true);
     searcher.setMaxPeriod(true);
-    searcher.setMaxNumGen(100000);
+    searcher.setMaxNumGen(1000000);
 
     searcher.setOutputToGenFile(false);
     searcher.setFilename("test.gen");
     searcher.setProgress(true);
+    searcher.setVerbose(1);
 
     // Configure settings used by the box and fixed-a_k strategies.
     searcher.setSubregionSize(boxSize);

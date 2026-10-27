@@ -43,7 +43,6 @@
 #include "latticetester/Weights.h"
 #include "latticetester/WeightsUniform.h"
 
-#include "latmrg/FigureOfMeritData.h"
 #include "latmrg/Candidate.h"
 #include "latmrg/EnumTypes.h"
 #include "latmrg/MWCLattice.h"
@@ -97,6 +96,7 @@ struct SearchBase
     bool progress = false; // Prints the program progress between generators, default = false    
     bool outputToGenFile = false; // When true, the output is written to a .gen file instead of the terminal, default false
     std::string filename = "outputSearch.gen"; // Name of the .gen file, default = "outputSearch.gen"
+    int verbose = 1; // Level of verbosity of the printed output, default = 1
     
     /**
      * Pointer to a figure of merit object
@@ -141,6 +141,8 @@ struct SearchBase
     void setOutputToGenFile(bool value) {outputToGenFile = value;}
     const std::string& getFilename() const {return filename;}
     void setFilename(const std::string& value) {filename = value;}
+    int getVerbose() const {return verbose;}
+    void setVerbose(int value) {verbose = value;}
 
     void setFOM(FigureOfMeritM<Int, Real> & value) {fom = &value;}
 
@@ -359,8 +361,12 @@ struct SearchBase
     }
     timer.init();
     
-    IntLattice<Int, Real> proj(getModulus(), fom->getTVector().length(), norm);    
-    FigureOfMeritData<Lat> fomData;
+    std::unique_ptr<IntLattice<Int, Real>> proj;
+
+    if (getCalculateFOM()) {
+      assert(fom != nullptr);
+      proj = std::make_unique<IntLattice<Int, Real>>(getModulus(), fom->getTVector().length(), norm);
+    } 
     
     // Variable which depends on whether the FoM is calculated for the primal / dual lattice.
     // Avoids duplicate code.
@@ -379,12 +385,21 @@ struct SearchBase
       * maximal period to the list.
       */
       if (getCalculateFOM()) {
-        candidate.merit = fom->computeMerit(*lat, proj);
-        bestCandidates.add(candidate);
+        candidate.merit = fom->computeMerit(*lat, *proj);
+        const bool retained = !bestCandidates.full() || candidate.getMerit() > bestCandidates.getCutoffMerit();
+        if (retained) {
+          bestCandidates.add(candidate);
+          if (verbose > 2) {
+            *out << "New element in the list of best candidates:\n";
+            *out << "Multipliers: " << candidate.getAa() << "\n";
+            *out << "Merit:      " << candidate.getMerit() << "\n\n";
+          }
+        }
         // For a best-FOM search, the cutoff is the worst merit retained,
         // and should be used only once the list is full.
-        if (bestFOM && bestCandidates.full())
-        fom->setLowBound(bestCandidates.getCutoffMerit());
+        if (bestCandidates.full())
+          fom->setLowBound(bestCandidates.getCutoffMerit());
+          
       } else {
         bestCandidates.addWithoutMerit(candidate);
         if (bestCandidates.full())
@@ -392,7 +407,8 @@ struct SearchBase
       }
       if (progress) old = printProgress(old);
     } while (!timer.timeOver(getTimeLimit()) && lat);
-    old = printProgress(old);
+    if (progress) old = printProgress(old);
+    if (verbose > 1) printResults();
     return 0;
   }
 
