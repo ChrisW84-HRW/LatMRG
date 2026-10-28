@@ -97,7 +97,7 @@ int main()
     searcher.setDualLattice(true);
     searcher.setCalculateFOM(true);
     searcher.setMaxPeriod(true);
-    searcher.setMaxNumGen(1000000);
+    searcher.setMaxNumGen(100000);
 
     searcher.setOutputToGenFile(false);
     searcher.setFilename("test.gen");
@@ -111,11 +111,30 @@ int main()
     searcher.setNumRandomPointsPerAk(100);
     searcher.setCountBadAk(false);
 
-    // Try the different search methods
+    // Try the different standard search methods
     runSearch("Pure random search", searcher, fom, &SearchMRG<Int, Real>::nextGeneratorRandom);
     runSearch("Random search with fixed a_k", searcher, fom, &SearchMRG<Int, Real>::nextGeneratorRandomAkFixed);
     runSearch("Random search with fixed a_k and boxes", searcher, fom, &SearchMRG<Int, Real>::nextGeneratorRandomAkFixedBox);
     runSearch("Random search with boxes", searcher, fom, &SearchMRG<Int, Real>::nextGeneratorRandomBox);
+
+    // Try search methods with approximate factoring
+    runSearch("Pure random search with approximate factoring", searcher, fom, &SearchMRG<Int, Real>::nextGeneratorRandomApproxFactoring);
+    runSearch("Pure random search with approximate factoring + fixed Ak", searcher, fom, &SearchMRG<Int, Real>::nextGeneratorRandomApproxFactoringAkFixed);
+
+    // Try search methods with sums of powers of two
+    searcher.setNumPowerTwo({2, 2});  // At most two terms for each coefficient
+    searcher.setMaxPowerTwo({62, 62}); // Exponents from 0 through 62
+    runSearch("Pure random search with two powers of two", searcher, fom, &SearchMRG<Int, Real>::nextGeneratorRandomPowersOfTwo);
+    runSearch("Pure random search with two powers of two + fixed Ak", searcher, fom, &SearchMRG<Int, Real>::nextGeneratorRandomPowersOfTwoAkFixed);
+    
+    // Impose that constraint that two coefficients are equal
+    searcher.setEqualityGroups({1, 1});
+    lower[2] = lower[1];
+    upper[2] = upper[1];
+    searcher.setLowBoundaries(lower);
+    searcher.setHighBoundaries(upper);
+    searcher.setEqualityGroups({1, 1});
+    runSearch("Pure random search with first and second coefficient equal", searcher, fom, &SearchMRG<Int, Real>::nextGeneratorRandom);
 
     return 0;
 }

@@ -59,7 +59,7 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     // Specific constraints on the generators
     vector<long> numPowerTwo;  // Values of n_i (max number of powers of 2)
     vector<long> maxPowerTwo;  // Values of p_i (max power of 2)
-    vector<vector<pair<long,long>>> equalCoeffs;  // List of pairs of coefficients that must be equal
+    std::vector<int> equalityGroups; // Entry i-1 is the group of a_i.
                        
     // Get and set methods
     const IntVec& getLowBoundaries() const {return lowBoundaries;}
@@ -86,10 +86,10 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     void setNumPowerTwo(const vector<long>& values) {numPowerTwo = values;}
     const vector<long>& getMaxPowerTwo() const {return maxPowerTwo;}
     void setMaxPowerTwo(const vector<long>& values) {maxPowerTwo = values;}
-    const vector<vector<pair<long,long>>>& getEqualCoeffs() const {return equalCoeffs;}
-    void setEqualCoeffs(const vector<vector<pair<long,long>>>& values) {equalCoeffs = values;}
+    const std::vector<int>& getEqualityGroups() const {return equalityGroups;}
+    void setEqualityGroups(const std::vector<int>& groups) {equalityGroups = groups;}
 
-    Int getNoMultipliers() const
+    Int getNumMultipliers() const
     {
         Int total(1);
         for (long i = 1; i <= this->getOrder(); i++) {
@@ -119,13 +119,31 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     MRGLattice<Int, Real>* nextGeneratorRandomBox();    
     MRGLattice<Int, Real>* nextGeneratorRandomAkFixed();
     MRGLattice<Int, Real>* nextGeneratorRandomAkFixedBox();
+    MRGLattice<Int, Real>* nextGeneratorRandomApproxFactoring();
+    MRGLattice<Int, Real>* nextGeneratorRandomApproxFactoringAkFixed();
+    MRGLattice<Int, Real>* nextGeneratorRandomPowersOfTwo();
+    MRGLattice<Int, Real>* nextGeneratorRandomPowersOfTwoAkFixed();
 
+    
+    /*
+    * These methods draw random coefficient with additional constaints.
+    * drawRandomCoefficients() respects the set equal coefficients.
+    * drawPowerOfTwoCoefficient draws a single coefficient which is the sum of powers of two
+    */
+    void drawRandomCoefficients(int fixedIndex = 0);
+    Int drawPowerOfTwoCoefficient(int i);
     
     /**
      * This method checks whether the generated lattice satisfies the
      * maximal-period requirement for an MRG.
      */
     bool checkMaxPeriod(MRGLattice<Int, Real>& lat) override;
+
+    /*
+    * Helper function which calculates the groups of equal coefficients 
+    * according to the vector equalityGroups
+    */
+    void prepareEqualityGroups();
 
     /**
      * Resets generator-specific state before a new search, so repeated calls
@@ -143,6 +161,8 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
         WorkingLattice = std::make_unique<MRGLattice<Int, Real>>(this->getModulus(), getLowBoundaries(), this->maxdim);
         aa.SetLength(this->getOrder() + 1);
         alpha.SetLength(this->getOrder() + 1);
+        if (lowBoundaries.length() == this->getOrder() + 1 && highBoundaries.length() == this->getOrder() + 1)  prepareEqualityGroups();
+        exhaustiveIndex = Int(0);
     }
 
     /**
@@ -168,7 +188,7 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     }
 
     /*
-    * This lattice is re-used as output of nextGenerator-type functions
+    * This lattice is re-used as output of nextGenerator type functions
     */
     std::unique_ptr<MRGLattice<Int, Real>> WorkingLattice;
 
@@ -179,13 +199,23 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     Int currentSubIndex = Int(0);
     IntVec alpha;
     bool hasLastAk = false;
-    NTL::ZZ lastAk;
+    Int lastAk;
     bool lastMaxPeriodResult = false;
 
     long currentAkTrial = 0;
     long currentAkSample = 0;
     bool hasCurrentAk = false;
-    NTL::ZZ currentAk;    
+    Int currentAk;    
+
+    Int exhaustiveIndex = Int(0);
+    
+    /*
+    * Helper variables for constraints on coefficients
+    */
+    int numEqualityGroups = 0;
+    std::vector<Int> groupLow;
+    std::vector<Int> groupHigh;
+    std::vector<Int> groupValue;
 };
 
 //============================================================================
@@ -207,10 +237,12 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     Int range, val;
     Int tmp;
     while (this->currentGen < this->getMaxNumGen() &&
-           this->currentGen < getNoMultipliers())
+           exhaustiveIndex < getNumMultipliers())
     {
         // Set the vector of multipliers for the next generator
-        tmp = NTL::to_ZZ(this->currentGen);
+        tmp = exhaustiveIndex;
+        ++exhaustiveIndex; // Always advance, even if the period test fails.
+        
         for (int i = 1; i <= this->getOrder(); i++) {
             range = getHighBoundary(i) - getLowBoundary(i) + 1;
             val = tmp % range;
@@ -239,11 +271,10 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
   * nextGeneratorRandom() only yields generators having this property.
   */
   template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real>::nextGeneratorRandom()
-  {
-    
+  {    
     while (this->currentGen < this->getMaxNumGen())
     {
-        for (int i = 1; i <= this->getOrder(); i++) aa[i] = randInt(getLowBoundary(i),  getHighBoundary(i));
+        drawRandomCoefficients();
         ++this->currentGen;
         if (this->getMaxPeriod() && !getMRGComponent().maxPeriod(aa)) {
             if (!countBadAk) --this->currentGen;
@@ -254,7 +285,6 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     }
     return nullptr;
   }
-
   //===========================================================================
 
   /**
@@ -340,6 +370,7 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     
     return nullptr;
 }
+//===========================================================================
 
 /**
  * nextGeneratorRandomAkFixed() performs a random search organized around the
@@ -363,12 +394,7 @@ template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real
         if (!hasCurrentAk || currentAkSample >= getNumRandomPointsPerAk()) {
             hasCurrentAk = false;
             currentAkSample = 0;
-
             
-            for (int i = 1; i < this->getOrder(); i++) {
-                aa[i] = randInt(getLowBoundary(i), getHighBoundary(i));
-            }
-        
             while (currentAkTrial < getNumRandomAk() &&
                    this->currentGen < this->getMaxNumGen())
             {
@@ -388,9 +414,12 @@ template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real
                 hasCurrentAk = true;
                 break;
             }
+
             if (!hasCurrentAk)
                 return nullptr;
         }
+        // Keeps the class of coefficients which equal a_k fixed and draws only the other coefficients
+        drawRandomCoefficients(this->getOrder());
         ++currentAkSample;
         ++this->currentGen;
         
@@ -399,6 +428,7 @@ template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real
     }
     return nullptr;
 }
+//===========================================================================
 
 /**
  * nextGeneratorRandomAkFixedBox() performs a hybrid random-box search organized
@@ -495,16 +525,326 @@ template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real
 
     return nullptr;
 }
-  /**
-  * This method checks whether the generated lattice satisfies the
-  * maximal-period requirement for an MRG.
-  * Probably this function will not be used since it requires to pass a lattice object which has not been creater.
-  * Delete it if it is not necessary.
-  */
-  template<typename Int, typename Real> bool SearchMRG<Int, Real>::checkMaxPeriod(MRGLattice<Int, Real>& lat)
-  {
-    return getMRGComponent().maxPeriod(lat.getaa());
-  }
+//===========================================================================
+
+/**
+ * Generates MRG candidates whose coefficients satisfy a sufficient condition
+ * for approximate factoring.
+ *
+ * For each coefficient a_i, the method draws an integer j uniformly from
+ * 0 < j < sqrt(m). It then randomly chooses |a_i| to be either j or
+ * floor(m / j), and independently chooses the sign. The usual coefficient
+ * boundaries and equality constraints are not used.
+ */
+template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real>::nextGeneratorRandomApproxFactoring()
+{
+    Int j, maxJ;
+    NTL::SqrRoot(maxJ, this->getModulus());
+    if (maxJ * maxJ == this->getModulus()) --maxJ;
+
+    while (this->currentGen < this->getMaxNumGen()) {
+        for (int i = 1; i <= this->getOrder(); ++i) {
+            j = randInt(NTL::ZZ(1), maxJ);
+            aa[i] = randInt(0,1) == 0  ? j : this->getModulus() / j;
+            if (randInt(0,1) == 1) aa[i] = -aa[i];
+        }
+        ++this->currentGen;
+        if (this->getMaxPeriod() && !getMRGComponent().maxPeriod(aa)) {
+            if (!countBadAk) --this->currentGen;
+            continue;
+        }
+        WorkingLattice->setaa(aa);
+        return WorkingLattice.get();
+    }
+    return nullptr;
+}
+//===========================================================================
+
+/**
+ * Like nextGeneratorRandomApproxFactoring but keeps an
+ * accepted a_k fixed for several random points.
+ */
+template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real>::nextGeneratorRandomApproxFactoringAkFixed()
+{
+    Int j, maxJ;
+
+    NTL::SqrRoot(maxJ, this->getModulus());
+    if (maxJ * maxJ == this->getModulus()) --maxJ;
+
+    while (this->currentGen < this->getMaxNumGen() &&
+           (hasCurrentAk || currentAkTrial < getNumRandomAk()))
+    {
+        if (!hasCurrentAk ||
+            currentAkSample >= getNumRandomPointsPerAk()) {
+            hasCurrentAk = false;
+            currentAkSample = 0;
+
+            while (currentAkTrial < getNumRandomAk() &&
+                   this->currentGen < this->getMaxNumGen())
+            {
+                j = randInt(Int(1), maxJ);
+                currentAk = randInt(0, 1) == 0 ? j : this->getModulus() / j;
+                if (randInt(0, 1) == 1) currentAk = -currentAk;
+                aa[this->getOrder()] = currentAk;
+                ++currentAkTrial;
+
+                if (this->getMaxPeriod() &&
+                    !getMRGComponent().maxPeriod(aa)) {
+                    if (countBadAk)
+                        ++this->currentGen;
+                    continue;
+                }
+                hasCurrentAk = true;
+                break;
+            }
+            if (!hasCurrentAk)
+                return nullptr;
+        }
+        // Draw fresh coefficients while keeping the max period a_k fixed.
+        for (int i = 1; i < this->getOrder(); ++i) {
+            j = randInt(Int(1), maxJ);
+            aa[i] = randInt(0, 1) == 0 ? j: this->getModulus() / j;
+            if (randInt(0, 1) == 1) aa[i] = -aa[i];
+        }
+        aa[this->getOrder()] = currentAk;
+        ++currentAkSample;
+        ++this->currentGen;
+
+        WorkingLattice->setaa(aa);
+        return WorkingLattice.get();
+    }
+    return nullptr;
+}
+//===========================================================================
+
+/**
+ * Generates random MRG coefficients as signed sums of powers of two.
+ *
+ * For each a_i, chooses between 1 and n_i distinct exponents from
+ * 0, ..., p_i, then independently chooses the sign of each term.
+ * Equality constraints and coefficient boundaries are not used.
+ */
+template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real>::nextGeneratorRandomPowersOfTwo()
+{
+    Int power, value;
+    long ni, pi, choice, maxTerms, terms;
+
+    while (this->currentGen < this->getMaxNumGen()) {
+        for (int i = 1; i <= this->getOrder(); ++i) {
+            // These std::vectors are indexed from 0: entry i-1 describes a_i.
+            ni = numPowerTwo[i - 1];
+            pi = maxPowerTwo[i - 1];
+            maxTerms = std::min(ni, pi + 1);
+            terms = randInt(1,maxTerms);
+
+            // Draw distinct exponents without replacement.
+            std::vector<long> exponents(pi + 1);
+            for (long e = 0; e <= pi; ++e)
+                exponents[e] = e;
+
+            value = 0;
+            for (long j = 0; j < terms; ++j) {
+                choice = randInt(j, pi);
+                std::swap(exponents[j], exponents[choice]);
+                power = NTL::power(NTL::ZZ(2), exponents[j]);
+                if (randInt(0,1) == 0) value += power;
+                else value -= power;
+            }
+            aa[i] = value;
+        }
+
+        ++this->currentGen;
+
+        if (this->getMaxPeriod() &&
+            !getMRGComponent().maxPeriod(aa)) {
+            if (!countBadAk)
+                --this->currentGen;
+            continue;
+        }
+
+        WorkingLattice->setaa(aa);
+        return WorkingLattice.get();
+    }
+
+    return nullptr;
+}
+//===========================================================================
+
+/**
+ * Like nextGeneratorRandomPowerofTwo but for each accepted a_k 
+ * it draws several independent vectors for the remaining
+ * coefficients while keeping a_k fixed.
+ */
+template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real>::nextGeneratorRandomPowersOfTwoAkFixed()
+{
+    while (this->currentGen < this->getMaxNumGen() &&
+           (hasCurrentAk || currentAkTrial < getNumRandomAk()))
+    {
+        // Find a new acceptable a_k when needed.
+        if (!hasCurrentAk ||
+            currentAkSample >= getNumRandomPointsPerAk()) {
+            hasCurrentAk = false;
+            currentAkSample = 0;
+
+            while (currentAkTrial < getNumRandomAk() &&
+                   this->currentGen < this->getMaxNumGen())
+            {
+                currentAk = drawPowerOfTwoCoefficient(this->getOrder());
+                aa[this->getOrder()] = currentAk;
+                ++currentAkTrial;
+
+                if (this->getMaxPeriod() &&
+                    !getMRGComponent().maxPeriod(aa)) {
+                    if (countBadAk)
+                        ++this->currentGen;
+                    continue;
+                }
+                hasCurrentAk = true;
+                break;
+            }
+            if (!hasCurrentAk)
+                return nullptr;
+        }
+        // Draw a fresh vector for the accepted a_k.
+        for (int i = 1; i < this->getOrder(); ++i)
+            aa[i] = drawPowerOfTwoCoefficient(i);
+
+        aa[this->getOrder()] = currentAk;
+
+        ++currentAkSample;
+        ++this->currentGen;
+
+        WorkingLattice->setaa(aa);
+        return WorkingLattice.get();
+    }
+
+    return nullptr;
+}
+//===========================================================================
+
+
+/**
+* This method checks whether the generated lattice satisfies the
+* maximal-period requirement for an MRG.
+* Probably this function will not be used since it requires to pass a lattice object which has not been creater.
+* Delete it if it is not necessary.
+*/
+template<typename Int, typename Real> bool SearchMRG<Int, Real>::checkMaxPeriod(MRGLattice<Int, Real>& lat)
+{
+  return getMRGComponent().maxPeriod(lat.getaa());
+}
+//===========================================================================
+
+/**
+ * Prepares the equality constraints for a search.
+ *
+ * Groups coefficients with the same equality label and determines the common
+ * admissible range for each group by intersecting bounds. An empty 
+ * equalityGroups vector treats all coefficients as independent.
+ */
+template<typename Int, typename Real> void SearchMRG<Int, Real>::prepareEqualityGroups()
+{
+    const int k = this->getOrder();
+
+    if (!equalityGroups.empty() && equalityGroups.size() != static_cast<std::size_t>(k))
+        throw std::invalid_argument("One equality-group label is required per coefficient");
+
+    numEqualityGroups = 0;
+    groupLow.resize(k + 1);
+    groupHigh.resize(k + 1);
+    groupValue.resize(k + 1);
+
+    std::vector<bool> seen(k + 1, false);
+
+    for (int i = 1; i <= k; ++i) {
+        const int group = equalityGroups.empty() ? i : equalityGroups[i - 1];
+
+        if (group < 1 || group > k)
+            throw std::invalid_argument("Invalid equality-group label");
+
+        if (group > numEqualityGroups)
+            numEqualityGroups = group;
+
+        if (!seen[group]) {
+            groupLow[group] = getLowBoundary(i);
+            groupHigh[group] = getHighBoundary(i);
+            seen[group] = true;
+        } else {
+            if (getLowBoundary(i) > groupLow[group])
+                groupLow[group] = getLowBoundary(i);
+            if (getHighBoundary(i) < groupHigh[group])
+                groupHigh[group] = getHighBoundary(i);
+        }
+    }
+
+    for (int group = 1; group <= numEqualityGroups; ++group) {
+        if (!seen[group] || groupLow[group] > groupHigh[group])
+            throw std::invalid_argument(
+                "Invalid or incompatible equality group");
+    }
+}
+//===========================================================================
+
+/**
+ * Draws one random value for each prepared equality group and copies it into
+ * every corresponding position of aa. This produces a coefficient vector
+ * satisfying the equality constraints.
+ *
+ * prepareEqualityGroups() must be called before this method.
+ */
+template<typename Int, typename Real> void SearchMRG<Int, Real>::drawRandomCoefficients(int fixedIndex)
+{
+    int fixedGroup = 0; // 0 means no coefficient is fixed.
+
+    if (fixedIndex != 0) {fixedGroup = equalityGroups.empty() ? fixedIndex : equalityGroups[fixedIndex - 1];}
+
+    for (int group = 1; group <= numEqualityGroups; ++group) {
+        if (group == fixedGroup) groupValue[group] = aa[fixedIndex];
+        else groupValue[group] = randInt(groupLow[group], groupHigh[group]);
+    }
+
+    for (int i = 1; i <= this->getOrder(); ++i) {
+        const int group = equalityGroups.empty() ? i : equalityGroups[i - 1];
+        aa[i] = groupValue[group];
+    }
+}
+//===========================================================================
+
+/**
+ * Draws coefficient a_i as a signed sum of distinct powers of two.
+ *
+ * Randomly selects between 1 and numPowerTwo[i-1] terms, with distinct
+ * exponents from 0 through maxPowerTwo[i-1]. The sign of each term is chosen
+ * independently.
+ */
+template<typename Int, typename Real> Int SearchMRG<Int, Real>::drawPowerOfTwoCoefficient(int i)
+{
+    const long ni = numPowerTwo[i - 1];
+    const long pi = maxPowerTwo[i - 1];
+    const long terms = randInt(1, std::min(ni, pi + 1));
+
+    std::vector<long> exponents(pi + 1);
+    for (long e = 0; e <= pi; ++e)
+        exponents[e] = e;
+
+    Int value(0);
+
+    for (long j = 0; j < terms; ++j) {
+        const long choice = randInt(j, pi);
+        std::swap(exponents[j], exponents[choice]);
+
+        const Int power = NTL::power(Int(2), exponents[j]);
+        if (randInt(0, 1) == 0)
+            value += power;
+        else
+            value -= power;
+    }
+
+    return value;
+}
+//===========================================================================
+
+
 
 } // namespace LatMRG
 
