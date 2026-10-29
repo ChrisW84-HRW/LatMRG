@@ -92,7 +92,7 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     Int getNumMultipliers() const
     {
         Int total(1);
-        for (long i = 1; i <= this->getOrder(); i++) {
+        for (long i = 1; i <= this->order; i++) {
             total *= highBoundaries[i] - lowBoundaries[i] + 1;
         }
         return total;
@@ -101,8 +101,8 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     // These functions are not called at all but need to be there,
     // because we need them for combined MRGs and thus virtual methods
     // have been defined in the SearchBase class.
-    virtual Int getComponentModulus(int k) const { return this->getModulus();}
-    virtual long getComponentOrder(int k) const { return this->getOrder();}
+    virtual Int getComponentModulus(int k) const { return this->modulus;}
+    virtual long getComponentOrder(int k) const { return this->order;}
 
     /**
     * Vector of multipliers
@@ -158,10 +158,10 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
         currentAkTrial = 0;
         currentAkSample = 0;
         hasCurrentAk = false;
-        WorkingLattice = std::make_unique<MRGLattice<Int, Real>>(this->getModulus(), getLowBoundaries(), this->maxdim);
-        aa.SetLength(this->getOrder() + 1);
-        alpha.SetLength(this->getOrder() + 1);
-        if (lowBoundaries.length() == this->getOrder() + 1 && highBoundaries.length() == this->getOrder() + 1)  prepareEqualityGroups();
+        WorkingLattice = std::make_unique<MRGLattice<Int, Real>>(this->modulus, lowBoundaries, this->maxdim);
+        aa.SetLength(this->order + 1);
+        alpha.SetLength(this->order + 1);
+        if (lowBoundaries.length() == this->order + 1 && highBoundaries.length() == this->order + 1)  prepareEqualityGroups();
         exhaustiveIndex = Int(0);
     }
 
@@ -182,7 +182,7 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     */
     MRGComponent<Int>& getMRGComponent() {
         if (!mrg) {
-            mrg.reset(new MRGComponent<Int>(this->getModulus(), this->getOrder()));
+            mrg.reset(new MRGComponent<Int>(this->modulus, this->order));
         }
         return *mrg;
     }
@@ -236,22 +236,22 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
   {    
     Int range, val;
     Int tmp;
-    while (this->currentGen < this->getMaxNumGen() &&
+    while (this->currentGen < this->maxNumGen &&
            exhaustiveIndex < getNumMultipliers())
     {
         // Set the vector of multipliers for the next generator
         tmp = exhaustiveIndex;
         ++exhaustiveIndex; // Always advance, even if the period test fails.
         
-        for (int i = 1; i <= this->getOrder(); i++) {
-            range = getHighBoundary(i) - getLowBoundary(i) + 1;
+        for (int i = 1; i <= this->order; i++) {
+            range = highBoundaries[i] - lowBoundaries[i] + 1;
             val = tmp % range;
             tmp /= range;
-            aa[i] = getLowBoundary(i) + val;
+            aa[i] = lowBoundaries[i] + val;
         }
         ++this->currentGen;
         
-        if (this->getMaxPeriod() && !getMRGComponent().maxPeriod(aa)) {
+        if (this->maxPeriod && !getMRGComponent().maxPeriod(aa)) {
             if (!countBadAk) --this->currentGen;
             continue;
         }
@@ -272,11 +272,11 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
   */
   template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real>::nextGeneratorRandom()
   {    
-    while (this->currentGen < this->getMaxNumGen())
+    while (this->currentGen < this->maxNumGen)
     {
         drawRandomCoefficients();
         ++this->currentGen;
-        if (this->getMaxPeriod() && !getMRGComponent().maxPeriod(aa)) {
+        if (this->maxPeriod && !getMRGComponent().maxPeriod(aa)) {
             if (!countBadAk) --this->currentGen;
             continue;
         } 
@@ -306,14 +306,14 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     Int akStepSize(1);
     
     // Calculate subregion size
-    for (int i = 1; i <= this->getOrder(); i++) {
-       Int hi = getSubregionSize(i);
+    for (int i = 1; i <= this->order; i++) {
+       Int hi = subregionSize[i];
         subregionTotal *= hi;
-        if (i < this->getOrder()) akStepSize *= hi;
+        if (i < this->order) akStepSize *= hi;
     }
 
-    while (this->currentGen < this->getMaxNumGen() &&
-           currentRandomRegion < getNumRandomRegions())
+    while (this->currentGen < this->maxNumGen &&
+           currentRandomRegion < numRandomRegions)
     {
         // If the current box is exhausted, move to the next random box.
         if (currentSubIndex >= subregionTotal) {
@@ -325,8 +325,8 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
 
         // Draw a new random box.
         if (currentSubIndex == 0) {
-            for (int i = 1; i <= this->getOrder(); i++) {
-                alpha[i] = randInt(getLowBoundary(i), getHighBoundary(i) - getSubregionSize(i) + 1);
+            for (int i = 1; i <= this->order; i++) {
+                alpha[i] = randInt(lowBoundaries[i], highBoundaries[i] - subregionSize[i] + 1);
             }
             hasLastAk = false;
         }
@@ -335,23 +335,23 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
         Int tmp = currentSubIndex;
         Int offset;
         Int offsetK(0);
-        for (int i = 1; i <= this->getOrder(); i++) {
-            Int hi = getSubregionSize(i);
+        for (int i = 1; i <= this->order; i++) {
+            Int hi = subregionSize[i];
             offset = tmp % hi;
             tmp /= hi;
             aa[i] = alpha[i] + offset;
             // Save what is the current offset in the last variable
-            if (i == this->getOrder()) offsetK = offset;
+            if (i == this->order) offsetK = offset;
         }
         
         ++this->currentGen;
         // Check maximal period only when a_k has changed.
-        if (this->getMaxPeriod()) {
-            bool akChanged = !hasLastAk || aa[this->getOrder()] != lastAk;
+        if (this->maxPeriod) {
+            bool akChanged = !hasLastAk || aa[this->order] != lastAk;
             if (akChanged) {
-                setModulusIntP<Int>(this->getModulus());
+                setModulusIntP<Int>(this->modulus);
                 lastMaxPeriodResult = getMRGComponent().maxPeriod(aa);
-                lastAk = aa[this->getOrder()];
+                lastAk = aa[this->order];
                 hasLastAk = true;
             }
             // If this a_k fails, skip all remaining vectors with this a_k.
@@ -384,28 +384,28 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
  */
 template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real>::nextGeneratorRandomAkFixed()
 {  
-    while (this->currentGen < this->getMaxNumGen() &&
-           currentAkTrial < getNumRandomAk())
+    while (this->currentGen < this->maxNumGen &&
+           currentAkTrial < numRandomAk)
     {
         /*
          * If we do not currently have a good a_k, or if we already generated
          * N_a vectors for the current a_k, draw a new a_k.
          */
-        if (!hasCurrentAk || currentAkSample >= getNumRandomPointsPerAk()) {
+        if (!hasCurrentAk || currentAkSample >= numRandomPointsPerAk) {
             hasCurrentAk = false;
             currentAkSample = 0;
             
-            while (currentAkTrial < getNumRandomAk() &&
-                   this->currentGen < this->getMaxNumGen())
+            while (currentAkTrial < numRandomAk &&
+                   this->currentGen < this->maxNumGen)
             {
-                currentAk = randInt(getLowBoundary(this->getOrder()), getHighBoundary(this->getOrder()));
-                aa[this->getOrder()] = currentAk;
+                currentAk = randInt(lowBoundaries[this->order], highBoundaries[this->order]);
+                aa[this->order] = currentAk;
                 ++currentAkTrial;
 
                 /*
                  * Check whether this a_k has maximal period.
                  */
-                if (this->getMaxPeriod()) {
+                if (this->maxPeriod) {
                     if (!getMRGComponent().maxPeriod(aa)) {                        
                         if (countBadAk) ++this->currentGen;
                         continue;
@@ -419,7 +419,7 @@ template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real
                 return nullptr;
         }
         // Keeps the class of coefficients which equal a_k fixed and draws only the other coefficients
-        drawRandomCoefficients(this->getOrder());
+        drawRandomCoefficients(this->order);
         ++currentAkSample;
         ++this->currentGen;
         
@@ -448,13 +448,13 @@ template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real
      * a_1, ..., a_{k-1}.
      */
     Int boxSize(1);
-    for (int i = 1; i < this->getOrder(); i++) {
-        Int hi = getSubregionSize(i);
+    for (int i = 1; i < this->order; i++) {
+        Int hi = subregionSize[i];
         boxSize *= hi;
     }
 
-    while (this->currentGen < this->getMaxNumGen() &&
-           (hasCurrentAk || currentAkTrial < getNumRandomAk()))
+    while (this->currentGen < this->maxNumGen &&
+           (hasCurrentAk || currentAkTrial < numRandomAk))
     {
         /*
          * If there is no current good a_k, or if the current box has been
@@ -465,23 +465,23 @@ template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real
             hasCurrentAk = false;
             currentSubIndex = 0;
 
-            while (currentAkTrial < getNumRandomAk() &&
-                   this->currentGen < this->getMaxNumGen())
+            while (currentAkTrial < numRandomAk &&
+                   this->currentGen < this->maxNumGen)
             {
                 /*
                  * Draw the lower corner of the box for coordinates
                  * a_1, ..., a_{k-1}.
                  */
-                for (int i = 1; i < this->getOrder(); i++) {
-                    alpha[i] = randInt(getLowBoundary(i), getHighBoundary(i) - getSubregionSize(i) + 1);
+                for (int i = 1; i < this->order; i++) {
+                    alpha[i] = randInt(lowBoundaries[i], highBoundaries[i] - subregionSize[i] + 1);
                     aa[i] = alpha[i];
                 }
 
                 /*
                  * Draw a_k independently.
                  */
-                currentAk = randInt(getLowBoundary(this->getOrder()), getHighBoundary(this->getOrder()));
-                aa[this->getOrder()] = currentAk;
+                currentAk = randInt(lowBoundaries[this->order], highBoundaries[this->order]);
+                aa[this->order] = currentAk;
 
                 ++currentAkTrial;
 
@@ -489,7 +489,7 @@ template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real
                  * Check whether this a_k is good. The check is performed
                  * only once, using the first point of the box.
                  */
-                if (this->getMaxPeriod()) {
+                if (this->maxPeriod) {
                     if (!getMRGComponent().maxPeriod(aa)) {                        
                         if (countBadAk) ++this->currentGen;
                         continue;
@@ -508,13 +508,13 @@ template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real
          */
         Int tmp = currentSubIndex;
 
-        for (int i = 1; i < this->getOrder(); i++) {
-            Int hi = getSubregionSize(i);
+        for (int i = 1; i < this->order; i++) {
+            Int hi = subregionSize[i];
             Int offset = tmp % hi;
             tmp /= hi;
             aa[i] = alpha[i] + offset;
         }
-        aa[this->getOrder()] = currentAk;
+        aa[this->order] = currentAk;
 
         ++currentSubIndex;
         ++this->currentGen;
@@ -539,17 +539,17 @@ template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real
 template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real>::nextGeneratorRandomApproxFactoring()
 {
     Int j, maxJ;
-    NTL::SqrRoot(maxJ, this->getModulus());
-    if (maxJ * maxJ == this->getModulus()) --maxJ;
+    NTL::SqrRoot(maxJ, this->modulus);
+    if (maxJ * maxJ == this->modulus) --maxJ;
 
-    while (this->currentGen < this->getMaxNumGen()) {
-        for (int i = 1; i <= this->getOrder(); ++i) {
+    while (this->currentGen < this->maxNumGen) {
+        for (int i = 1; i <= this->order; ++i) {
             j = randInt(NTL::ZZ(1), maxJ);
-            aa[i] = randInt(0,1) == 0  ? j : this->getModulus() / j;
+            aa[i] = randInt(0,1) == 0  ? j : this->modulus / j;
             if (randInt(0,1) == 1) aa[i] = -aa[i];
         }
         ++this->currentGen;
-        if (this->getMaxPeriod() && !getMRGComponent().maxPeriod(aa)) {
+        if (this->maxPeriod && !getMRGComponent().maxPeriod(aa)) {
             if (!countBadAk) --this->currentGen;
             continue;
         }
@@ -568,27 +568,27 @@ template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real
 {
     Int j, maxJ;
 
-    NTL::SqrRoot(maxJ, this->getModulus());
-    if (maxJ * maxJ == this->getModulus()) --maxJ;
+    NTL::SqrRoot(maxJ, this->modulus);
+    if (maxJ * maxJ == this->modulus) --maxJ;
 
-    while (this->currentGen < this->getMaxNumGen() &&
-           (hasCurrentAk || currentAkTrial < getNumRandomAk()))
+    while (this->currentGen < this->maxNumGen &&
+           (hasCurrentAk || currentAkTrial < numRandomAk))
     {
         if (!hasCurrentAk ||
-            currentAkSample >= getNumRandomPointsPerAk()) {
+            currentAkSample >= numRandomPointsPerAk) {
             hasCurrentAk = false;
             currentAkSample = 0;
 
-            while (currentAkTrial < getNumRandomAk() &&
-                   this->currentGen < this->getMaxNumGen())
+            while (currentAkTrial < numRandomAk &&
+                   this->currentGen < this->maxNumGen)
             {
                 j = randInt(Int(1), maxJ);
-                currentAk = randInt(0, 1) == 0 ? j : this->getModulus() / j;
+                currentAk = randInt(0, 1) == 0 ? j : this->modulus / j;
                 if (randInt(0, 1) == 1) currentAk = -currentAk;
-                aa[this->getOrder()] = currentAk;
+                aa[this->order] = currentAk;
                 ++currentAkTrial;
 
-                if (this->getMaxPeriod() &&
+                if (this->maxPeriod &&
                     !getMRGComponent().maxPeriod(aa)) {
                     if (countBadAk)
                         ++this->currentGen;
@@ -601,12 +601,12 @@ template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real
                 return nullptr;
         }
         // Draw fresh coefficients while keeping the max period a_k fixed.
-        for (int i = 1; i < this->getOrder(); ++i) {
+        for (int i = 1; i < this->order; ++i) {
             j = randInt(Int(1), maxJ);
-            aa[i] = randInt(0, 1) == 0 ? j: this->getModulus() / j;
+            aa[i] = randInt(0, 1) == 0 ? j: this->modulus / j;
             if (randInt(0, 1) == 1) aa[i] = -aa[i];
         }
-        aa[this->getOrder()] = currentAk;
+        aa[this->order] = currentAk;
         ++currentAkSample;
         ++this->currentGen;
 
@@ -629,8 +629,8 @@ template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real
     Int power, value;
     long ni, pi, choice, maxTerms, terms;
 
-    while (this->currentGen < this->getMaxNumGen()) {
-        for (int i = 1; i <= this->getOrder(); ++i) {
+    while (this->currentGen < this->maxNumGen) {
+        for (int i = 1; i <= this->order; ++i) {
             // These std::vectors are indexed from 0: entry i-1 describes a_i.
             ni = numPowerTwo[i - 1];
             pi = maxPowerTwo[i - 1];
@@ -655,7 +655,7 @@ template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real
 
         ++this->currentGen;
 
-        if (this->getMaxPeriod() &&
+        if (this->maxPeriod &&
             !getMRGComponent().maxPeriod(aa)) {
             if (!countBadAk)
                 --this->currentGen;
@@ -677,23 +677,23 @@ template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real
  */
 template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real>::nextGeneratorRandomPowersOfTwoAkFixed()
 {
-    while (this->currentGen < this->getMaxNumGen() &&
-           (hasCurrentAk || currentAkTrial < getNumRandomAk()))
+    while (this->currentGen < this->maxNumGen &&
+           (hasCurrentAk || currentAkTrial < numRandomAk))
     {
         // Find a new acceptable a_k when needed.
         if (!hasCurrentAk ||
-            currentAkSample >= getNumRandomPointsPerAk()) {
+            currentAkSample >= numRandomPointsPerAk) {
             hasCurrentAk = false;
             currentAkSample = 0;
 
-            while (currentAkTrial < getNumRandomAk() &&
-                   this->currentGen < this->getMaxNumGen())
+            while (currentAkTrial < numRandomAk &&
+                   this->currentGen < this->maxNumGen)
             {
-                currentAk = drawPowerOfTwoCoefficient(this->getOrder());
-                aa[this->getOrder()] = currentAk;
+                currentAk = drawPowerOfTwoCoefficient(this->order);
+                aa[this->order] = currentAk;
                 ++currentAkTrial;
 
-                if (this->getMaxPeriod() &&
+                if (this->maxPeriod &&
                     !getMRGComponent().maxPeriod(aa)) {
                     if (countBadAk)
                         ++this->currentGen;
@@ -706,10 +706,10 @@ template<typename Int, typename Real> MRGLattice<Int, Real>* SearchMRG<Int, Real
                 return nullptr;
         }
         // Draw a fresh vector for the accepted a_k.
-        for (int i = 1; i < this->getOrder(); ++i)
+        for (int i = 1; i < this->order; ++i)
             aa[i] = drawPowerOfTwoCoefficient(i);
 
-        aa[this->getOrder()] = currentAk;
+        aa[this->order] = currentAk;
 
         ++currentAkSample;
         ++this->currentGen;
@@ -744,7 +744,7 @@ template<typename Int, typename Real> bool SearchMRG<Int, Real>::checkMaxPeriod(
  */
 template<typename Int, typename Real> void SearchMRG<Int, Real>::prepareEqualityGroups()
 {
-    const int k = this->getOrder();
+    const int k = this->order;
 
     if (!equalityGroups.empty() && equalityGroups.size() != static_cast<std::size_t>(k))
         throw std::invalid_argument("One equality-group label is required per coefficient");
@@ -766,14 +766,14 @@ template<typename Int, typename Real> void SearchMRG<Int, Real>::prepareEquality
             numEqualityGroups = group;
 
         if (!seen[group]) {
-            groupLow[group] = getLowBoundary(i);
-            groupHigh[group] = getHighBoundary(i);
+            groupLow[group] = lowBoundaries[i];
+            groupHigh[group] = highBoundaries[i];
             seen[group] = true;
         } else {
-            if (getLowBoundary(i) > groupLow[group])
-                groupLow[group] = getLowBoundary(i);
-            if (getHighBoundary(i) < groupHigh[group])
-                groupHigh[group] = getHighBoundary(i);
+            if (lowBoundaries[i] > groupLow[group])
+                groupLow[group] = lowBoundaries[i];
+            if (highBoundaries[i] < groupHigh[group])
+                groupHigh[group] = highBoundaries[i];
         }
     }
 
@@ -803,7 +803,7 @@ template<typename Int, typename Real> void SearchMRG<Int, Real>::drawRandomCoeff
         else groupValue[group] = randInt(groupLow[group], groupHigh[group]);
     }
 
-    for (int i = 1; i <= this->getOrder(); ++i) {
+    for (int i = 1; i <= this->order; ++i) {
         const int group = equalityGroups.empty() ? i : equalityGroups[i - 1];
         aa[i] = groupValue[group];
     }

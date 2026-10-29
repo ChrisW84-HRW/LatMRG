@@ -259,8 +259,8 @@ struct SearchBase
     // Progress is measured with respect to both stopping criteria. Since the
     // search terminates as soon as either the time limit or the generator limit
     // is reached, we display the larger of the two relative progresses.
-    double time_progress = double(timer.val(Chrono::SEC)) / getTimeLimit();
-    double gen_progress  = double(currentGen) / getMaxNumGen();
+    double time_progress = double(timer.val(Chrono::SEC)) / timeLimit;
+    double gen_progress  = double(currentGen) / maxNumGen;
 
     int per_80 = static_cast<int>(80 * std::max(time_progress, gen_progress));
     if (per_80 > 80) per_80 = 80;
@@ -291,42 +291,42 @@ struct SearchBase
   */
   template<typename Int, typename Real, typename Lat> void SearchBase<Int, Real, Lat>::printResults() { 
 
-    if (getOutputToGenFile()) {
-        file.open(getFilename(), std::ios::out | std::ios::trunc);
+    if (outputToGenFile) {
+        file.open(filename, std::ios::out | std::ios::trunc);
         if (!file) {
-            std::cerr << "Failed to open " << getFilename() << "\n";
+            std::cerr << "Failed to open " << filename << "\n";
         }
         out = &file;
     }
     
     *out << "\nSearch: A search program for Random Number Generators\n";
-    *out << ((getNumComp()>1)?"Combined generators":"Simple generator")
-      << " configuration" << ((getNumComp()>1)?"s":"") << "\n\n";      
+    *out << ((numComp>1)?"Combined generators":"Simple generator")
+      << " configuration" << ((numComp>1)?"s":"") << "\n\n";      
     
-    if (getGenType() == MRG) {
-        *out << "Modulo:         m = " << getModulus();
+    if (genType == MRG) {
+        *out << "Modulo:         m = " << modulus;
         *out << "\n";
-        *out << "Order:          k = " << getOrder() << "\n";
-    } else if (getGenType() == MWC) {
-    } else if (getGenType() == MMRG) {
-    } else if (getGenType() == COMBO) {
-      for (int k = 0; k < getNumComp(); k++) {
+        *out << "Order:          k = " << order << "\n";
+    } else if (genType == MWC) {
+    } else if (genType == MMRG) {
+    } else if (genType == COMBO) {
+      for (int k = 0; k < numComp; k++) {
        if (k > 0) *out << "\n";
-       if (getNumComp() >1) *out << "Component " << k+1 << ":\n";
+       if (numComp >1) *out << "Component " << k+1 << ":\n";
        *out << "Modulo:         m = " << getComponentModulus(k);
        *out << "\n";
        *out << "Order:          k = " << getComponentOrder(k) << "\n";
       //*out << "Generator type: " << toStringGenType(getGenType()) << "\n";
       }
     }
-    *out << (getMaxPeriod()?"Full":"Any") << " period length\n";
+    *out << (maxPeriod?"Full":"Any") << " period length\n";
     *out << "\nTest:\n" << (bestFOM?"Best":"Worst") << " generators \n";
     *out << "Figure of Merit M with vector t=" << fom->getTVector() << "\n";
     *out << "for the " << (dualLattice?"dual":"primal") << " lattice \n";
     *out << "Number of generators kept: " << numBestGen << "\n";
-    *out << "Number of generators tested: " << getMaxNumGen() << "\n\n"; 
+    *out << "Number of generators tested: " << maxNumGen << "\n\n"; 
     if (print_time) {
-      *out << "Allowed running time: " << getTimeLimit() << "s.\n";
+      *out << "Allowed running time: " << timeLimit << "s.\n";
       *out << "Actual CPU time: " << timer.toString() << "\n\n";
     }    
 
@@ -347,8 +347,8 @@ struct SearchBase
   template<typename Int, typename Real, typename Lat> template<typename Generator>
   int SearchBase<Int, Real, Lat>::performSearch(Lat* (Generator::*generator)())  {  
     
-    assert(getNumComp() > 0);
-    assert(getCalculateFOM() || getMaxPeriod());
+    assert(numComp > 0);
+    assert(calculateFOM || maxPeriod);
 
     currentGen = 0;
     resetGeneratorState();
@@ -363,15 +363,15 @@ struct SearchBase
     
     std::unique_ptr<IntLattice<Int, Real>> proj;
 
-    if (getCalculateFOM()) {
+    if (calculateFOM) {
       assert(fom != nullptr);
-      proj = std::make_unique<IntLattice<Int, Real>>(getModulus(), fom->getTVector().length(), norm);
+      proj = std::make_unique<IntLattice<Int, Real>>(modulus, fom->getTVector().length(), norm);
     } 
     
     // Variable which depends on whether the FoM is calculated for the primal / dual lattice.
     // Avoids duplicate code.
         
-    setModulusIntP<Int>(getModulus());   
+    setModulusIntP<Int>(modulus);   
 
     // Loop through all lattices
     do {      
@@ -384,7 +384,7 @@ struct SearchBase
       *  the best ones. If we do not calculate the FOM, we just add the lattices with 
       * maximal period to the list.
       */
-      if (getCalculateFOM()) {
+      if (calculateFOM) {
         candidate.merit = fom->computeMerit(*lat, *proj);
         const bool retained = !bestCandidates.full() || candidate.getMerit() > bestCandidates.getCutoffMerit();
         if (retained) {
@@ -406,7 +406,7 @@ struct SearchBase
           break;
       }
       if (progress) old = printProgress(old);
-    } while (!timer.timeOver(getTimeLimit()) && lat);
+    } while (!timer.timeOver(timeLimit) && lat);
     if (progress) old = printProgress(old);
     if (verbose > 1) printResults();
     return 0;
