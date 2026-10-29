@@ -61,10 +61,9 @@ namespace LatMRG {
  * SearchBase contains the common configuration data and search logic used by
  * all (RNG type specific) search classes.
  *
- * Generator-specific subclasses provide the methods that construct candidate
- * lattices, while SearchBase implements the shared functionality such as the
- * main facility to perform searches, storage of the best retained lattices, 
- * progress reporting, and result printing.
+ * Generator-specific subclasses provide functions that generate candidate
+ * coefficient vectors. SearchBase evaluates their figures of merit when
+ * requested, constructing a working lattice only for that purpose.
  */
 template<typename Int, typename Real, typename Lat>
 struct SearchBase
@@ -104,7 +103,7 @@ struct SearchBase
     FigureOfMeritM<Int, Real>* fom = nullptr;
     
 
-    // Get and set methods    
+    // Get and set functions    
     GenType getGenType() const {return genType;}
     void setGenType(GenType value) {genType = value;}
     long getNumComp() const {return numComp;}
@@ -147,7 +146,7 @@ struct SearchBase
     void setFOM(FigureOfMeritM<Int, Real> & value) {fom = &value;}
 
     /**
-     * These are different virtual methods to be specified by the subclasses.
+     * These are different virtual functions to be specified by the subclasses.
      * ~ SearhBase is the virtual destructor
      * getComponentModulus() gets the modulus of a single component
      * getComponentOrder() gets the order of a single component
@@ -159,56 +158,63 @@ struct SearchBase
     virtual const IntVec& getCurrentCoefficients() const = 0;
 
   /**
-   * This abstract method looks for the next generator based on the chosen configuration.
-   * It uses the variable currentGen to calculate the next generator in the list.
-   * nextGeneratorExhaustive() is performing an exhaustive search. This method needs to
-   * be implemented separately for the different types of lattices.
-   */
-   virtual Lat* nextGeneratorExhaustive() = 0;
+   * This abstract function updates the current coefficient vector with 
+   * the next candidate from an exhaustive search. Returns false when no 
+   * further candidate is available.
+   */ 
+   virtual bool nextGeneratorExhaustive() = 0;
 
-   /**
-   * As nextGeneratorExhaustive() but it chooses a random next generator which is within
-   * the range defined by the configuration.
+  /**
+   * Updates the current coefficient vector with the next random candidate.
+   * Returns false when the search limit has been reached.
    */
-   virtual Lat* nextGeneratorRandom() = 0;  
+   virtual bool nextGeneratorRandom() = 0;  
    
    /**
    * Resets generator type specific search state before a new search is started.
    *
-   * The base implementation does nothing. Subclasses override this method
+   * The base implementation does nothing. Subclasses override this function
    * to reset state variables used by their generator routines, such as
    * enumeration counters.
    */
    virtual void resetGeneratorState() {}
 
-   /**
-   * This method performs the search based on the current configuration.
-   * The parameter *generator defines the method of the search, e.g.,
-   * a random or an exhaustive search.
-   * The extra template parameter Generator allows to pass a pointer to a member function 
-   * of the derived class, for example SearchMRG::nextGeneratorRandomBox, without hard-coding 
-   * the derived type in the base class. Thus the base algorithm remains generic and reusable, 
-   * while the generator-specific enumeration logic stays in the subclasses.
-   */
-   template<typename Generator> int performSearch(Lat* (Generator::*generator)());
+/**
+ * This function performs the search using the supplied next-generator member function.
+ *
+ * nextGenerator is a member function of a derived search class, such as
+ * SearchMRG::nextGeneratorRandom or SearchMRG::nextGeneratorExhaustive.
+ * Each call updates the current coefficient vector and returns true when
+ * a candidate is available, or false when the search is exhausted.
+ *
+ * SearchType identifies the derived class that owns this member function,
+ * allowing SearchBase to use different search strategies without knowing
+ * their concrete implementations.
+ */
+   template<typename SearchType> int performSearch(bool (SearchType::*nextGenerator)());
    
    /**
-   * This method checks whether the generated lattice satisfies the
+   * This function checks whether the generated lattice satisfies the
    * maximal-period requirement (if applicable). The implementation
    * defers per lattice type and is provided in the subclasses.
    */
    virtual bool checkMaxPeriod(Lat& lat) = 0;
     
     /**
-    * This method reports the progress of the current search. 
+    * This function reports the progress of the current search. 
     */
     int printProgress(int old);
 
     /**
-    * This method prints the results of the random search. It
+    * This function prints the results of the random search. It
     * should only be called after PerformSearch() has been executed. 
     */
     void printResults();
+
+    /**
+     * Writes the output to a .gen file.
+     */
+    void writeGenFile() const;
 
     /**
     * Returns the merit of the best retained lattice.
@@ -217,6 +223,11 @@ struct SearchBase
     double getBestMerit();
 
     // Technical variables
+
+    /*
+    * This lattice is re-used as output of nextGenerator type functions
+    */
+    virtual Lat& getWorkingLattice() = 0;
 
     /**
     * Counter for the current RNG.
@@ -230,20 +241,9 @@ struct SearchBase
     CandidateList<Int> bestCandidates;
 
     /**
-    * The current lattice which is analyzed.
-    */
-    Lat* lat = nullptr;
-
-    /**
     * Program time.
     */
     Chrono timer; 
-
-    /**
-     * Output streams for terminal and file
-     */
-    std::ostream* out = &std::cout;
-    std::ofstream file;
    
 };
     
@@ -252,7 +252,7 @@ struct SearchBase
 
   
   /**
-  * This method is supposed to report the progress of the current  
+  * This function is supposed to report the progress of the current  
   * search. 
   */
   template<typename Int, typename Real, typename Lat> int SearchBase<Int, Real, Lat>::printProgress(int old) {  
@@ -261,7 +261,6 @@ struct SearchBase
     // is reached, we display the larger of the two relative progresses.
     double time_progress = double(timer.val(Chrono::SEC)) / timeLimit;
     double gen_progress  = double(currentGen) / maxNumGen;
-
     int per_80 = static_cast<int>(80 * std::max(time_progress, gen_progress));
     if (per_80 > 80) per_80 = 80;
     if (per_80 < 0) per_80 = 0;  
@@ -271,12 +270,10 @@ struct SearchBase
     for (int i = 0; i < per_80; i++) std::cout << "#";
     for (int i = per_80; i < 80; i++) std::cout << " ";
     std::cout << "] ";std::cout << std::setw(3) << int(per_80/80.0*100) << " %";
-
     if (per_80 == 80)
         std::cout << '\n';
     else
         std::cout << '\r';
-
     std::cout << std::flush;
     return per_80;
     
@@ -285,135 +282,147 @@ struct SearchBase
   //===========================================================================
   
   /** 
-   * This method prints the results of the search.
+   * This function prints the results of the search.
    * The function is not yet complete but rather a prototype
    * to which additional information can be added later.
   */
   template<typename Int, typename Real, typename Lat> void SearchBase<Int, Real, Lat>::printResults() { 
-
-    if (outputToGenFile) {
-        file.open(filename, std::ios::out | std::ios::trunc);
-        if (!file) {
-            std::cerr << "Failed to open " << filename << "\n";
-        }
-        out = &file;
-    }
-    
-    *out << "\nSearch: A search program for Random Number Generators\n";
-    *out << ((numComp>1)?"Combined generators":"Simple generator")
-      << " configuration" << ((numComp>1)?"s":"") << "\n\n";      
-    
+    std::cout << "\nSearch: A search program for Random Number Generators\n";
+    std::cout << ((numComp>1)?"Combined generators":"Simple generator")
+      << " configuration" << ((numComp>1)?"s":"") << "\n\n";
     if (genType == MRG) {
-        *out << "Modulo:         m = " << modulus;
-        *out << "\n";
-        *out << "Order:          k = " << order << "\n";
+        std::cout << "Modulo:         m = " << modulus;
+        std::cout << "\n";
+        std::cout << "Order:          k = " << order << "\n";
     } else if (genType == MWC) {
     } else if (genType == MMRG) {
     } else if (genType == COMBO) {
       for (int k = 0; k < numComp; k++) {
-       if (k > 0) *out << "\n";
-       if (numComp >1) *out << "Component " << k+1 << ":\n";
-       *out << "Modulo:         m = " << getComponentModulus(k);
-       *out << "\n";
-       *out << "Order:          k = " << getComponentOrder(k) << "\n";
-      //*out << "Generator type: " << toStringGenType(getGenType()) << "\n";
+       if (k > 0) std::cout << "\n";
+       if (numComp >1) std::cout << "Component " << k+1 << ":\n";
+       std::cout << "Modulo:         m = " << getComponentModulus(k);
+       std::cout << "\n";
+       std::cout << "Order:          k = " << getComponentOrder(k) << "\n";
+      //std::cout << "Generator type: " << toStringGenType(getGenType()) << "\n";
       }
     }
-    *out << (maxPeriod?"Full":"Any") << " period length\n";
-    *out << "\nTest:\n" << (bestFOM?"Best":"Worst") << " generators \n";
-    *out << "Figure of Merit M with vector t=" << fom->getTVector() << "\n";
-    *out << "for the " << (dualLattice?"dual":"primal") << " lattice \n";
-    *out << "Number of generators kept: " << numBestGen << "\n";
-    *out << "Number of generators tested: " << maxNumGen << "\n\n"; 
+    std::cout << (maxPeriod?"Full":"Any") << " period length\n";
+    std::cout << "\nTest:\n" << (bestFOM?"Best":"Worst") << " generators \n";
+    if (calculateFOM) std::cout << "Figure of Merit M with vector t=" << fom->getTVector() << "\n";
+    std::cout << "for the " << (dualLattice?"dual":"primal") << " lattice \n";
+    std::cout << "Number of generators kept: " << numBestGen << "\n";
+    std::cout << "Number of generators tested: " << maxNumGen << "\n\n"; 
     if (print_time) {
-      *out << "Allowed running time: " << timeLimit << "s.\n";
-      *out << "Actual CPU time: " << timer.toString() << "\n\n";
+      std::cout << "Allowed running time: " << timeLimit << "s.\n";
+      std::cout << "Actual CPU time: " << timer.toString() << "\n\n";
     }    
-
-    *out << "Retained generators (from best to worst):\n";
+    std::cout << "Retained generators (from best to worst):\n";
     for (const auto& candidate : bestCandidates.getList()) {
-      *out << "Multipliers: " << candidate.getAa() << "\n";
-      *out << "Merit:      " << candidate.getMerit() << "\n\n";
+      std::cout << "Multipliers: " << candidate.getAa() << "\n";
+      std::cout << "Merit:      " << candidate.getMerit() << "\n\n";
     }
   }
 
   //===========================================================================
 
+/**
+ * Writes the retained candidates to a .gen file.
+ * The format is provisional and needs to be checked against the old .gen format.
+ */
+template<typename Int, typename Real, typename Lat>
+void SearchBase<Int, Real, Lat>::writeGenFile() const
+{
+    std::ofstream genFile(filename, std::ios::out | std::ios::trunc);
+
+    if (!genFile) {
+        std::cerr << "Failed to open " << filename << '\n';
+        return;
+    }
+
+    for (const auto& candidate : bestCandidates.getList()) {
+        genFile << toStringGenType(genType) << '\n';
+        genFile << candidate.getModulus() << '\n';
+        genFile << candidate.getAa() << '\n';
+    }
+}
+
+
+  //===========================================================================
+
   /**
-  * This method performs the search based on the current configuration.
-  * The parameter *generator defines the method of the search, e.g.,
+  * This function performs the search based on the current configuration.
+  * The parameter *nextGenerator defines the search strategy, e.g.,
   * a random or an exhaustive search.
+  * 
+  * Each call updates the current coefficient vector and returns true when
+  * a candidate is available, or false when the search is exhausted.
+  * The template parameter SearchType allows SearchBase to call that member
+  * function without knowing the concrete derived search class.
   */
-  template<typename Int, typename Real, typename Lat> template<typename Generator>
-  int SearchBase<Int, Real, Lat>::performSearch(Lat* (Generator::*generator)())  {  
-    
+  template<typename Int, typename Real, typename Lat> template<typename SearchType>
+  int SearchBase<Int, Real, Lat>::performSearch(bool (SearchType::*nextGenerator)())  {      
     assert(numComp > 0);
     assert(calculateFOM || maxPeriod);
-
     currentGen = 0;
     resetGeneratorState();
     bestCandidates = CandidateList<Int>(numBestGen, bestFOM);
-
     int old = 0;
     // Launching the tests
     if (progress) {
       old = printProgress(-1);
     }
-    timer.init();
-    
+    timer.init();    
     std::unique_ptr<IntLattice<Int, Real>> proj;
-
     if (calculateFOM) {
       assert(fom != nullptr);
       proj = std::make_unique<IntLattice<Int, Real>>(modulus, fom->getTVector().length(), norm);
-    } 
-    
-    // Variable which depends on whether the FoM is calculated for the primal / dual lattice.
-    // Avoids duplicate code.
-        
+    }     
+    // Set the modulus used by the modular-arithmetic in NTL, which are
+    // called when checking whether a candidate has maximal period.
     setModulusIntP<Int>(modulus);   
-
     // Loop through all lattices
     do {      
-      lat = (static_cast<Generator*>(this)->*generator)();
-      if (!lat) continue;   
-
-      Candidate<Int> candidate{lat->getModulus(), getCurrentCoefficients(), 0.0}; // Copies aa; does not retain a reference to it.
-
+      // Generate the next coefficient vector. False means the search is exhausted..
+      if (!(static_cast<SearchType*>(this)->*nextGenerator)())
+        break;
+      Candidate<Int> candidate{getModulus(), getCurrentCoefficients(), 0.0}; // Copies aa; does not retain a reference to it.
       /** If the FOM is calculated, then the lattice is only added if its FOM is among 
       *  the best ones. If we do not calculate the FOM, we just add the lattices with 
       * maximal period to the list.
       */
       if (calculateFOM) {
-        candidate.merit = fom->computeMerit(*lat, *proj);
+        Lat& lat = getWorkingLattice();
+        candidate.merit = fom->computeMerit(lat, *proj);
         const bool retained = !bestCandidates.full() || candidate.getMerit() > bestCandidates.getCutoffMerit();
         if (retained) {
           bestCandidates.add(candidate);
           if (verbose > 2) {
-            *out << "New element in the list of best candidates:\n";
-            *out << "Multipliers: " << candidate.getAa() << "\n";
-            *out << "Merit:      " << candidate.getMerit() << "\n\n";
+            std::cout << "New element in the list of best candidates:\n";
+            std::cout << "Multipliers: " << candidate.getAa() << "\n";
+            std::cout << "Merit:      " << candidate.getMerit() << "\n\n";
           }
         }
         // For a best-FOM search, the cutoff is the worst merit retained,
         // and should be used only once the list is full.
         if (bestCandidates.full())
-          fom->setLowBound(bestCandidates.getCutoffMerit());
-          
+          fom->setLowBound(bestCandidates.getCutoffMerit());          
       } else {
         bestCandidates.addWithoutMerit(candidate);
         if (bestCandidates.full())
           break;
       }
       if (progress) old = printProgress(old);
-    } while (!timer.timeOver(timeLimit) && lat);
+    } while (!timer.timeOver(getTimeLimit()) && currentGen < maxNumGen);
     if (progress) old = printProgress(old);
     if (verbose > 1) printResults();
+    if (outputToGenFile) writeGenFile();
     return 0;
   }
 
+  //===========================================================================
+
   /**
-  * This method returns the merit of the best retained lattice.
+  * This function returns the merit of the best retained lattice.
   * Returns NaN if no lattice has been retained.
   */
  template<typename Int, typename Real, typename Lat> double SearchBase<Int, Real, Lat>::getBestMerit()

@@ -1,0 +1,437 @@
+// This file is part of LatMRG.
+//
+// Copyright (C) 2012-2026  The LatMRG authors, under the occasional supervision
+// of Pierre L'Ecuyer at Universit? de Montr?al.
+//
+// Licensed under the Apache License, Version 2.0 (the "License");
+// you may not use this file except in compliance with the License.
+// You may obtain a copy of the License at
+//
+//     http://www.apache.org/licenses/LICENSE-2.0
+//
+// Unless required by applicable law or agreed to in writing, software
+// distributed under the License is distributed on an "AS IS" BASIS,
+// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+// See the License for the specific language governing permissions and
+// limitations under the License.
+
+#ifndef LATMRG_SEARCHBASE_H
+#define LATMRG_SEARCHBASE_H
+
+#include <cassert>
+#include <fstream>
+#include <iostream>
+#include <iomanip>
+#include <memory>
+#include <functional>
+#include <ctime>
+#include <cstdlib>
+#include <list>
+#include <vector>
+#include <string>
+#include <cstdint>
+#include <memory>
+
+#include "latticetester/EnumTypes.h"
+#include "latticetester/Util.h"
+#include "latticetester/FigureOfMeritM.h"
+#include "latticetester/FigureOfMeritDualM.h"
+#include "latticetester/NormaBestLat.h"
+#include "latticetester/Random.h"
+#include "latticetester/ReducerStatic.h"
+#include "latticetester/ReducerBB.h"
+#include "latticetester/Weights.h"
+#include "latticetester/WeightsUniform.h"
+
+#include "latmrg/Candidate.h"
+#include "latmrg/EnumTypes.h"
+#include "latmrg/MWCLattice.h"
+#include "latmrg/MRGLattice.h"
+#include "latmrg/MRGComponent.h"
+
+using LatticeTester::IntLatticeExt;
+using LatticeTester::Normalizer;
+using namespace std;
+using namespace LatMRG;
+using namespace LatticeTester::Random;
+
+namespace LatMRG {
+
+/**
+ * SearchBase contains the common configuration data and search logic used by
+ * all (RNG type specific) search classes.
+ *
+ * Generator-specific subclasses provide the functions that construct candidate
+ * lattices, while SearchBase implements the shared functionality such as the
+ * main facility to perform searches, storage of the best retained lattices, 
+ * progress reporting, and result printing.
+ */
+template<typename Int, typename Real, typename Lat>
+struct SearchBase
+{
+    /**
+     * We need to make explicit the type of the Configuration to have it available for necessary case distinctions.
+     */
+    explicit SearchBase(GenType type) : genType(type), bestCandidates(numBestGen, bestFOM) {}
+
+    // Lattice specific parameters
+    GenType genType;   // Type of generator, currently MRG, MWC or COMBO.
+    long numComp = 1; // Number of components.  If > 1, we have a combined generator.    
+    bool dualLattice = false; // Work with primal/dual lattice
+    NormType norm = L2NORM; // Norm Type
+    int64_t maxdim = 0; // Maximal dimension of the lattice
+    Int modulus;   // The modulus of the lattice
+    long order;    // The order k of the generator
+
+    // Settings for the search
+    bool bestFOM = true; // Want to keep the best/worst FoMs, default is true
+    bool maxPeriod = true; // When true, we retain only max-period generators. default is true.
+    int numBestGen = 5; // Number of best generators to be kept, default is 5
+    bool calculateFOM = true; // Decides whether we want to calculate the FOM
+    int maxNumGen = 1000; // Maximal number of generators to be tested, default = 1000
+
+    // Technical setting
+    double timeLimit = 600.0; // CPU time limit in seconds. default = 600
+    bool print_time = true; // Decides if running time is printed in printResults
+    bool progress = false; // Prints the program progress between generators, default = false    
+    bool outputToGenFile = false; // When true, the output is written to a .gen file instead of the terminal, default false
+    std::string filename = "outputSearch.gen"; // Name of the .gen file, default = "outputSearch.gen"
+    int verbose = 1; // Level of verbosity of the printed output, default = 1
+    
+    /**
+     * Pointer to a figure of merit object
+     */
+    FigureOfMeritM<Int, Real>* fom = nullptr;
+    
+
+    // Get and set functions    
+    GenType getGenType() const {return genType;}
+    void setGenType(GenType value) {genType = value;}
+    long getNumComp() const {return numComp;}
+    void setNumComp(long value) {numComp = value;}
+    bool getDualLattice() const {return dualLattice;}
+    void setDualLattice(bool value) {dualLattice = value;}
+    NormType getNorm() const { return norm;}
+    void setNorm(NormType value) { norm = value;}
+    int64_t getMaxDim() const {return maxdim;}
+    void setMaxDim(int64_t value) {maxdim = value;}    
+    Int getModulus() const {return modulus;}
+    void setModulus(Int value) {modulus = value;}
+    long getOrder() const {return order;}
+    void setOrder(long value) {order = value;}
+
+    bool getBestFOM() const {return bestFOM;}
+    void setBestFOM(bool value) {bestFOM = value;}
+    bool getMaxPeriod() const {return maxPeriod;}
+    void setMaxPeriod(bool value) {maxPeriod = value;}
+    int getNumBestGen() const {return numBestGen;}
+    void setNumBestGen(int value) {numBestGen = value;}
+    bool getCalculateFOM() const {return calculateFOM;}
+    void setCalculateFOM(bool value) {calculateFOM = value;}
+    int getMaxNumGen() const {return maxNumGen;}
+    void setMaxNumGen(int value) {maxNumGen = value;}
+
+    double getTimeLimit() const {return timeLimit;}
+    void setTimeLimit(double value) {timeLimit = value;}
+    bool getPrintTime() const { return print_time;}
+    void setPrintTime(bool value) { print_time = value;}
+    bool getProgress() const {return progress;}
+    void setProgress(bool value) {progress = value;}
+    bool getOutputToGenFile() const {return outputToGenFile;}
+    void setOutputToGenFile(bool value) {outputToGenFile = value;}
+    const std::string& getFilename() const {return filename;}
+    void setFilename(const std::string& value) {filename = value;}
+    int getVerbose() const {return verbose;}
+    void setVerbose(int value) {verbose = value;}
+
+    void setFOM(FigureOfMeritM<Int, Real> & value) {fom = &value;}
+
+    /**
+     * These are different virtual functions to be specified by the subclasses.
+     * ~ SearhBase is the virtual destructor
+     * getComponentModulus() gets the modulus of a single component
+     * getComponentOrder() gets the order of a single component
+     * getCurrentCoefficients() allows to make an independent copy of the vector of multipliers.
+     */
+    virtual ~SearchBase() = default;
+    virtual Int getComponentModulus(int k) const = 0;
+    virtual long getComponentOrder(int k) const = 0;
+    virtual const IntVec& getCurrentCoefficients() const = 0;
+
+  /**
+   * This abstract function looks for the next generator based on the chosen configuration.
+   * It uses the variable currentGen to calculate the next generator in the list.
+   * nextGeneratorExhaustive() is performing an exhaustive search. This function needs to
+   * be implemented separately for the different types of lattices.
+   */
+   virtual Lat* nextGeneratorExhaustive() = 0;
+
+   /**
+   * As nextGeneratorExhaustive() but it chooses a random next generator which is within
+   * the range defined by the configuration.
+   */
+   virtual Lat* nextGeneratorRandom() = 0;  
+   
+   /**
+   * Resets generator type specific search state before a new search is started.
+   *
+   * The base implementation does nothing. Subclasses override this function
+   * to reset state variables used by their generator routines, such as
+   * enumeration counters.
+   */
+   virtual void resetGeneratorState() {}
+
+   /**
+  * This function performs the search using the current configuration.
+  * The parameter nextGenerator is a pointer to a member function that
+  * produces the next candidate lattice, such as SearchMRG::nextGeneratorRandom
+  * or SearchMRG::nextGeneratorExhaustive. It returns nullptr when no further
+  * candidates are available.
+  *
+  * The template parameter SearchType allows nextGenerator to be a member
+  * function of a derived search class without hard-coding that class in
+  * SearchBase. Thus, the common search logic remains reusable, while the
+  * generation of candidates stays in the derived classes.
+  */
+   template<typename SearchType> int performSearch(Lat* (SearchType::*nextGenerator)());
+   
+   /**
+   * This function checks whether the generated lattice satisfies the
+   * maximal-period requirement (if applicable). The implementation
+   * defers per lattice type and is provided in the subclasses.
+   */
+   virtual bool checkMaxPeriod(Lat& lat) = 0;
+    
+    /**
+    * This function reports the progress of the current search. 
+    */
+    int printProgress(int old);
+
+    /**
+    * This function prints the results of the random search. It
+    * should only be called after PerformSearch() has been executed. 
+    */
+    void printResults();
+
+    /**
+     * Writes the output to a .gen file.
+     */
+    void writeGenFile() const;
+
+    /**
+    * Returns the merit of the best retained lattice.
+    * Returns NaN if no lattice has been retained.
+    */
+    double getBestMerit();
+
+    // Technical variables
+
+    /**
+    * Counter for the current RNG.
+    */
+    int currentGen = 0;         
+    
+    /**
+     * Object to store the information of the lattices with the
+     * best figures of merit.
+     */    
+    CandidateList<Int> bestCandidates;
+
+    /**
+     * Non-owning pointer to the current working lattice, owned by the
+     * generator-specific search class.
+     */
+    Lat* lat = nullptr;
+
+    /**
+    * Program time.
+    */
+    Chrono timer; 
+   
+};
+    
+//============================================================================
+// Implementation
+
+  
+  /**
+  * This function is supposed to report the progress of the current  
+  * search. 
+  */
+  template<typename Int, typename Real, typename Lat> int SearchBase<Int, Real, Lat>::printProgress(int old) {  
+    // Progress is measured with respect to both stopping criteria. Since the
+    // search terminates as soon as either the time limit or the generator limit
+    // is reached, we display the larger of the two relative progresses.
+    double time_progress = double(timer.val(Chrono::SEC)) / timeLimit;
+    double gen_progress  = double(currentGen) / maxNumGen;
+    int per_80 = static_cast<int>(80 * std::max(time_progress, gen_progress));
+    if (per_80 > 80) per_80 = 80;
+    if (per_80 < 0) per_80 = 0;  
+    // We do not print for no reason as this slows the program a lot.
+    if (per_80 <= old) return old;
+    std::cout << "Program progress: [";
+    for (int i = 0; i < per_80; i++) std::cout << "#";
+    for (int i = per_80; i < 80; i++) std::cout << " ";
+    std::cout << "] ";std::cout << std::setw(3) << int(per_80/80.0*100) << " %";
+    if (per_80 == 80)
+        std::cout << '\n';
+    else
+        std::cout << '\r';
+    std::cout << std::flush;
+    return per_80;
+    
+  }
+
+  //===========================================================================
+  
+  /** 
+   * This function prints the results of the search.
+   * The function is not yet complete but rather a prototype
+   * to which additional information can be added later.
+  */
+  template<typename Int, typename Real, typename Lat> void SearchBase<Int, Real, Lat>::printResults() { 
+    std::cout << "\nSearch: A search program for Random Number Generators\n";
+    std::cout << ((numComp>1)?"Combined generators":"Simple generator")
+      << " configuration" << ((numComp>1)?"s":"") << "\n\n";
+    if (genType == MRG) {
+        std::cout << "Modulo:         m = " << modulus;
+        std::cout << "\n";
+        std::cout << "Order:          k = " << order << "\n";
+    } else if (genType == MWC) {
+    } else if (genType == MMRG) {
+    } else if (genType == COMBO) {
+      for (int k = 0; k < numComp; k++) {
+       if (k > 0) std::cout << "\n";
+       if (numComp >1) std::cout << "Component " << k+1 << ":\n";
+       std::cout << "Modulo:         m = " << getComponentModulus(k);
+       std::cout << "\n";
+       std::cout << "Order:          k = " << getComponentOrder(k) << "\n";
+      //std::cout << "Generator type: " << toStringGenType(getGenType()) << "\n";
+      }
+    }
+    std::cout << (maxPeriod?"Full":"Any") << " period length\n";
+    std::cout << "\nTest:\n" << (bestFOM?"Best":"Worst") << " generators \n";
+    std::cout << "Figure of Merit M with vector t=" << fom->getTVector() << "\n";
+    std::cout << "for the " << (dualLattice?"dual":"primal") << " lattice \n";
+    std::cout << "Number of generators kept: " << numBestGen << "\n";
+    std::cout << "Number of generators tested: " << maxNumGen << "\n\n"; 
+    if (print_time) {
+      std::cout << "Allowed running time: " << timeLimit << "s.\n";
+      std::cout << "Actual CPU time: " << timer.toString() << "\n\n";
+    }    
+    std::cout << "Retained generators (from best to worst):\n";
+    for (const auto& candidate : bestCandidates.getList()) {
+      std::cout << "Multipliers: " << candidate.getAa() << "\n";
+      std::cout << "Merit:      " << candidate.getMerit() << "\n\n";
+    }
+  }
+
+  //===========================================================================
+
+/**
+ * Writes the retained candidates to a .gen file.
+ * The format is provisional and needs to be checked against the old .gen format.
+ */
+template<typename Int, typename Real, typename Lat>
+void SearchBase<Int, Real, Lat>::writeGenFile() const
+{
+    std::ofstream genFile(filename, std::ios::out | std::ios::trunc);
+
+    if (!genFile) {
+        std::cerr << "Failed to open " << filename << '\n';
+        return;
+    }
+
+    for (const auto& candidate : bestCandidates.getList()) {
+        genFile << toStringGenType(genType) << '\n';
+        genFile << candidate.getModulus() << '\n';
+        genFile << candidate.getAa() << '\n';
+    }
+}
+
+
+  //===========================================================================
+
+  /**
+  * This function performs the search based on the current configuration.
+  * The parameter *generator defines the search strategy, e.g.,
+  * a random or an exhaustive search.
+  */
+  template<typename Int, typename Real, typename Lat> template<typename SearchType>
+  int SearchBase<Int, Real, Lat>::performSearch(Lat* (SearchType::*nextGenerator)())  {      
+    assert(numComp > 0);
+    assert(calculateFOM || maxPeriod);
+    currentGen = 0;
+    resetGeneratorState();
+    bestCandidates = CandidateList<Int>(numBestGen, bestFOM);
+    int old = 0;
+    // Launching the tests
+    if (progress) {
+      old = printProgress(-1);
+    }
+    timer.init();    
+    std::unique_ptr<IntLattice<Int, Real>> proj;
+    if (calculateFOM) {
+      assert(fom != nullptr);
+      proj = std::make_unique<IntLattice<Int, Real>>(modulus, fom->getTVector().length(), norm);
+    }     
+    // Set the modulus used by the modular-arithmetic in NTL, which are
+    // called when checking whether a candidate has maximal period.
+    setModulusIntP<Int>(modulus);   
+    // Loop through all lattices
+    do {      
+      // Call the selected next-generator member function. It updates the
+      // reusable working lattice and returns a non-owning pointer to it;
+      // nullptr indicates that no further candidates are available.
+      lat = (static_cast<SearchType*>(this)->*nextGenerator)();
+      if (!lat) continue;   
+      Candidate<Int> candidate{lat->getModulus(), getCurrentCoefficients(), 0.0}; // Copies aa; does not retain a reference to it.
+      /** If the FOM is calculated, then the lattice is only added if its FOM is among 
+      *  the best ones. If we do not calculate the FOM, we just add the lattices with 
+      * maximal period to the list.
+      */
+      if (calculateFOM) {
+        candidate.merit = fom->computeMerit(*lat, *proj);
+        const bool retained = !bestCandidates.full() || candidate.getMerit() > bestCandidates.getCutoffMerit();
+        if (retained) {
+          bestCandidates.add(candidate);
+          if (verbose > 2) {
+            std::cout << "New element in the list of best candidates:\n";
+            std::cout << "Multipliers: " << candidate.getAa() << "\n";
+            std::cout << "Merit:      " << candidate.getMerit() << "\n\n";
+          }
+        }
+        // For a best-FOM search, the cutoff is the worst merit retained,
+        // and should be used only once the list is full.
+        if (bestCandidates.full())
+          fom->setLowBound(bestCandidates.getCutoffMerit());          
+      } else {
+        bestCandidates.addWithoutMerit(candidate);
+        if (bestCandidates.full())
+          break;
+      }
+      if (progress) old = printProgress(old);
+    } while (!timer.timeOver(getTimeLimit()) && currentGen < maxNumGen && lat);
+    if (progress) old = printProgress(old);
+    if (verbose > 1) printResults();
+    if (outputToGenFile) writeGenFile();
+    return 0;
+  }
+
+  //===========================================================================
+
+  /**
+  * This function returns the merit of the best retained lattice.
+  * Returns NaN if no lattice has been retained.
+  */
+ template<typename Int, typename Real, typename Lat> double SearchBase<Int, Real, Lat>::getBestMerit()
+  {
+    const auto& list = bestCandidates.getList();
+    if (list.empty())
+        return std::numeric_limits<double>::quiet_NaN();
+    return list.front().merit;
+  }
+
+} // namespace LatMRG
+
+#endif // LATMRG_SEARCHBASE_H

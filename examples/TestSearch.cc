@@ -31,8 +31,8 @@ using namespace LatMRG;
  * for several independent searches.
  */
 template<typename Int, typename Real>
-void runSearch(const char* name, SearchMRG<Int, Real>& searcher,  FigureOfMeritM<Int, Real>& fom, MRGLattice<Int, Real>* (SearchMRG<Int, Real>::*generator)())
-    {
+void runSearch(const char* name, SearchMRG<Int, Real>& searcher,  FigureOfMeritM<Int, Real>& fom, bool (SearchMRG<Int, Real>::*generator)())
+  {
     std::cout << "\n" << name << "\n";
     fom.setLowBound(0.0);
     const std::clock_t start = std::clock();
@@ -111,17 +111,17 @@ int main()
     searcher.setNumRandomPointsPerAk(100);
     searcher.setCountBadAk(false);
 
-    // Try the different standard search methods
+    // Try the different standard search stategies
     runSearch("Pure random search", searcher, fom, &SearchMRG<Int, Real>::nextGeneratorRandom);
     runSearch("Random search with fixed a_k", searcher, fom, &SearchMRG<Int, Real>::nextGeneratorRandomAkFixed);
     runSearch("Random search with fixed a_k and boxes", searcher, fom, &SearchMRG<Int, Real>::nextGeneratorRandomAkFixedBox);
     runSearch("Random search with boxes", searcher, fom, &SearchMRG<Int, Real>::nextGeneratorRandomBox);
 
-    // Try search methods with approximate factoring
+    // Try search strategies with approximate factoring
     runSearch("Pure random search with approximate factoring", searcher, fom, &SearchMRG<Int, Real>::nextGeneratorRandomApproxFactoring);
     runSearch("Pure random search with approximate factoring + fixed Ak", searcher, fom, &SearchMRG<Int, Real>::nextGeneratorRandomApproxFactoringAkFixed);
 
-    // Try search methods with sums of powers of two
+    // Try search strategies with sums of powers of two
     searcher.setNumPowerTwo({2, 2});  // At most two terms for each coefficient
     searcher.setMaxPowerTwo({62, 62}); // Exponents from 0 through 62
     runSearch("Pure random search with two powers of two", searcher, fom, &SearchMRG<Int, Real>::nextGeneratorRandomPowersOfTwo);
