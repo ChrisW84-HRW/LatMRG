@@ -177,7 +177,7 @@ struct SearchBase
    * to reset state variables used by their generator routines, such as
    * enumeration counters.
    */
-   virtual void resetGeneratorState() {}
+   virtual void resetSearchState() {}
 
 /**
  * This function performs the search using the supplied next-generator member function.
@@ -199,6 +199,16 @@ struct SearchBase
    * defers per lattice type and is provided in the subclasses.
    */
    virtual bool checkMaxPeriod(Lat& lat) = 0;
+
+   /*
+   * Checks if we the upper bound on the number of generators to be checked has been
+   * reached. Depends on whether we restrict to maximal period generators.
+   */
+   bool reachedNumGeneratorLimit() const
+   {
+     return (maxPeriod ? numMaxPeriodCandidates : numCandidatesExamined)
+           >= maxNumGen;
+   }
     
     /**
     * This function reports the progress of the current search. 
@@ -230,9 +240,14 @@ struct SearchBase
     virtual Lat& getWorkingLattice() = 0;
 
     /**
-    * Counter for the current RNG.
+    * Counter for the number of RNGs examined.
     */
-    int currentGen = 0;         
+    int numCandidatesExamined = 0;   
+    
+    /**
+    * Counter for the number of RNGs examined which have maximal period.
+    */
+    int numMaxPeriodCandidates = 0;
     
     /**
      * Object to store the information of the lattices with the
@@ -260,7 +275,7 @@ struct SearchBase
     // search terminates as soon as either the time limit or the generator limit
     // is reached, we display the larger of the two relative progresses.
     double time_progress = double(timer.val(Chrono::SEC)) / timeLimit;
-    double gen_progress  = double(currentGen) / maxNumGen;
+    double gen_progress = double(maxPeriod ? numMaxPeriodCandidates : numCandidatesExamined) / maxNumGen;
     int per_80 = static_cast<int>(80 * std::max(time_progress, gen_progress));
     if (per_80 > 80) per_80 = 80;
     if (per_80 < 0) per_80 = 0;  
@@ -363,8 +378,9 @@ void SearchBase<Int, Real, Lat>::writeGenFile() const
   int SearchBase<Int, Real, Lat>::performSearch(bool (SearchType::*nextGenerator)())  {      
     assert(numComp > 0);
     assert(calculateFOM || maxPeriod);
-    currentGen = 0;
-    resetGeneratorState();
+    numCandidatesExamined = 0;
+    numMaxPeriodCandidates = 0;
+    resetSearchState();
     bestCandidates = CandidateList<Int>(numBestGen, bestFOM);
     int old = 0;
     // Launching the tests
@@ -412,7 +428,7 @@ void SearchBase<Int, Real, Lat>::writeGenFile() const
           break;
       }
       if (progress) old = printProgress(old);
-    } while (!timer.timeOver(getTimeLimit()) && currentGen < maxNumGen);
+    } while (!timer.timeOver(getTimeLimit()) && !this->reachedNumGeneratorLimit());
     if (progress) old = printProgress(old);
     if (verbose > 1) printResults();
     if (outputToGenFile) writeGenFile();

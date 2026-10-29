@@ -109,23 +109,22 @@ int main()
     searcher.setNumRandomRegions(10000);
     searcher.setNumRandomAk(100000);
     searcher.setNumRandomPointsPerAk(100);
-    searcher.setCountBadAk(false);
 
     // Try the different standard search stategies
     runSearch("Pure random search", searcher, fom, &SearchMRG<Int, Real>::nextGeneratorRandom);
-    runSearch("Random search with fixed a_k", searcher, fom, &SearchMRG<Int, Real>::nextGeneratorRandomAkFixed);
-    runSearch("Random search with fixed a_k and boxes", searcher, fom, &SearchMRG<Int, Real>::nextGeneratorRandomAkFixedBox);
+    runSearch("Random search by a_k", searcher, fom, &SearchMRG<Int, Real>::nextGeneratorRandomByAk);
+    runSearch("Random search by a_k and boxes", searcher, fom, &SearchMRG<Int, Real>::nextGeneratorRandomByAkBox);
     runSearch("Random search with boxes", searcher, fom, &SearchMRG<Int, Real>::nextGeneratorRandomBox);
 
     // Try search strategies with approximate factoring
     runSearch("Pure random search with approximate factoring", searcher, fom, &SearchMRG<Int, Real>::nextGeneratorRandomApproxFactoring);
-    runSearch("Pure random search with approximate factoring + fixed Ak", searcher, fom, &SearchMRG<Int, Real>::nextGeneratorRandomApproxFactoringAkFixed);
+    runSearch("Pure random search with approximate factoring + by Ak", searcher, fom, &SearchMRG<Int, Real>::nextGeneratorRandomApproxFactoringByAk);
 
     // Try search strategies with sums of powers of two
     searcher.setNumPowerTwo({2, 2});  // At most two terms for each coefficient
     searcher.setMaxPowerTwo({62, 62}); // Exponents from 0 through 62
     runSearch("Pure random search with two powers of two", searcher, fom, &SearchMRG<Int, Real>::nextGeneratorRandomPowersOfTwo);
-    runSearch("Pure random search with two powers of two + fixed Ak", searcher, fom, &SearchMRG<Int, Real>::nextGeneratorRandomPowersOfTwoAkFixed);
+    runSearch("Pure random search with two powers of two + by Ak", searcher, fom, &SearchMRG<Int, Real>::nextGeneratorRandomPowersOfTwoByAk);
     
     // Impose that constraint that two coefficients are equal
     searcher.setEqualityGroups({1, 1});
