@@ -156,20 +156,7 @@ struct SearchBase
     virtual Int getComponentModulus(int k) const = 0;
     virtual long getComponentOrder(int k) const = 0;
     virtual const IntVec& getCurrentCoefficients() const = 0;
-
-  /**
-   * This abstract function updates the current coefficient vector with 
-   * the next candidate from an exhaustive search. Returns false when no 
-   * further candidate is available.
-   */ 
-   virtual bool nextGeneratorExhaustive() = 0;
-
-  /**
-   * Updates the current coefficient vector with the next random candidate.
-   * Returns false when the search limit has been reached.
-   */
-   virtual bool nextGeneratorRandom() = 0;  
-   
+    
    /**
    * Resets generator type specific search state before a new search is started.
    *
@@ -191,7 +178,19 @@ struct SearchBase
  * allowing SearchBase to use different search strategies without knowing
  * their concrete implementations.
  */
-   template<typename SearchType> int performSearch(bool (SearchType::*nextGenerator)());
+  template<typename SearchType> int performSearchNextGenerator(bool (SearchType::*nextGenerator)());
+
+  /**
+  * Performs a search using a search-loop function from a derived class.
+  *
+  * The search loop generates and counts candidates, checks period and stopping
+  * conditions, and calls testCandidate() for candidates to be retained.
+  */
+  template<typename SearchType> int performSearch(void (SearchType::*searchLoop)(IntLattice<Int, Real>*, int&));
+   
+
+   
+   void testCandidate(const IntVec& coefficients, IntLattice<Int, Real>* proj);
    
    /**
    * This function checks whether the generated lattice satisfies the
@@ -348,12 +347,10 @@ template<typename Int, typename Real, typename Lat>
 void SearchBase<Int, Real, Lat>::writeGenFile() const
 {
     std::ofstream genFile(filename, std::ios::out | std::ios::trunc);
-
     if (!genFile) {
         std::cerr << "Failed to open " << filename << '\n';
         return;
     }
-
     for (const auto& candidate : bestCandidates.getList()) {
         genFile << toStringGenType(genType) << '\n';
         genFile << candidate.getModulus() << '\n';
@@ -364,77 +361,69 @@ void SearchBase<Int, Real, Lat>::writeGenFile() const
 
   //===========================================================================
 
-  /**
-  * This function performs the search based on the current configuration.
-  * The parameter *nextGenerator defines the search strategy, e.g.,
-  * a random or an exhaustive search.
-  * 
-  * Each call updates the current coefficient vector and returns true when
-  * a candidate is available, or false when the search is exhausted.
-  * The template parameter SearchType allows SearchBase to call that member
-  * function without knowing the concrete derived search class.
-  */
-  template<typename Int, typename Real, typename Lat> template<typename SearchType>
-  int SearchBase<Int, Real, Lat>::performSearch(bool (SearchType::*nextGenerator)())  {      
+/**
+ * If a figure of merit is requested, the function obtains the working lattice, computes
+ * the merit using proj, and retains the candidate if it belongs among the
+ * best found so far. Otherwise, stores the candidate with merit zero while
+ * space remains in the list.
+ *
+ * The search loop is responsible for period checks, candidate counters, and
+ * stopping conditions; this function does not perform those tasks.
+ * The coefficients must match those of the current working lattice.
+ */
+template<typename Int, typename Real, typename Lat> 
+void SearchBase<Int, Real, Lat>::testCandidate(const IntVec& coefficients, IntLattice<Int, Real>* proj)
+{
+    Candidate<Int> candidate{modulus, coefficients, 0.0};
+    if (!calculateFOM) {
+        bestCandidates.addWithoutMerit(candidate);
+        return;
+    }
+    assert(fom != nullptr && proj != nullptr);
+    Lat& lattice = getWorkingLattice();
+    candidate.merit = fom->computeMerit(lattice, *proj);
+    // For now, this ranking condition supports best-FOM searches.
+    assert(bestFOM);
+    const bool retained = !bestCandidates.full() || candidate.getMerit() > bestCandidates.getCutoffMerit();
+    if (retained) {
+        bestCandidates.add(candidate);
+        if (verbose > 2) {
+            std::cout << "New element in the list of best candidates:\n"
+                      << "Multipliers: " << candidate.getAa() << '\n'
+                      << "Merit:      " << candidate.getMerit() << "\n\n";
+        }
+    }
+    if (bestCandidates.full()) fom->setLowBound(bestCandidates.getCutoffMerit());
+}
+
+  //===========================================================================
+
+template<typename Int, typename Real, typename Lat> template<typename SearchType> 
+int SearchBase<Int, Real, Lat>::performSearch( void (SearchType::*searchLoop)(IntLattice<Int, Real>*, int&))
+{
     assert(numComp > 0);
     assert(calculateFOM || maxPeriod);
     numCandidatesExamined = 0;
     numMaxPeriodCandidates = 0;
     resetSearchState();
     bestCandidates = CandidateList<Int>(numBestGen, bestFOM);
-    int old = 0;
-    // Launching the tests
-    if (progress) {
-      old = printProgress(-1);
-    }
-    timer.init();    
     std::unique_ptr<IntLattice<Int, Real>> proj;
     if (calculateFOM) {
-      assert(fom != nullptr);
-      proj = std::make_unique<IntLattice<Int, Real>>(modulus, fom->getTVector().length(), norm);
-    }     
-    // Set the modulus used by the modular-arithmetic in NTL, which are
-    // called when checking whether a candidate has maximal period.
-    setModulusIntP<Int>(modulus);   
-    // Loop through all lattices
-    do {      
-      // Generate the next coefficient vector. False means the search is exhausted..
-      if (!(static_cast<SearchType*>(this)->*nextGenerator)())
-        break;
-      Candidate<Int> candidate{getModulus(), getCurrentCoefficients(), 0.0}; // Copies aa; does not retain a reference to it.
-      /** If the FOM is calculated, then the lattice is only added if its FOM is among 
-      *  the best ones. If we do not calculate the FOM, we just add the lattices with 
-      * maximal period to the list.
-      */
-      if (calculateFOM) {
-        Lat& lat = getWorkingLattice();
-        candidate.merit = fom->computeMerit(lat, *proj);
-        const bool retained = !bestCandidates.full() || candidate.getMerit() > bestCandidates.getCutoffMerit();
-        if (retained) {
-          bestCandidates.add(candidate);
-          if (verbose > 2) {
-            std::cout << "New element in the list of best candidates:\n";
-            std::cout << "Multipliers: " << candidate.getAa() << "\n";
-            std::cout << "Merit:      " << candidate.getMerit() << "\n\n";
-          }
-        }
-        // For a best-FOM search, the cutoff is the worst merit retained,
-        // and should be used only once the list is full.
-        if (bestCandidates.full())
-          fom->setLowBound(bestCandidates.getCutoffMerit());          
-      } else {
-        bestCandidates.addWithoutMerit(candidate);
-        if (bestCandidates.full())
-          break;
-      }
-      if (progress) old = printProgress(old);
-    } while (!timer.timeOver(getTimeLimit()) && !this->reachedNumGeneratorLimit());
-    if (progress) old = printProgress(old);
+        assert(fom != nullptr);
+        proj = std::make_unique<IntLattice<Int, Real>>(modulus, fom->getTVector().length(), norm);
+    }
+    setModulusIntP<Int>(modulus);
+    timer.init();
+    int old = 0;
+    if (progress)
+        old = printProgress(-1);
+    // Unlike a next-generator function, this runs the entire search.
+    (static_cast<SearchType*>(this)->*searchLoop)(proj.get(), old);
+    if (progress) printProgress(old);
     if (verbose > 1) printResults();
     if (outputToGenFile) writeGenFile();
     return 0;
-  }
-
+}
   //===========================================================================
 
   /**
@@ -448,6 +437,8 @@ void SearchBase<Int, Real, Lat>::writeGenFile() const
         return std::numeric_limits<double>::quiet_NaN();
     return list.front().merit;
   }
+
+  #include "latmrg/SearchBaseNextGenerator.tpp"
 
 } // namespace LatMRG
 
