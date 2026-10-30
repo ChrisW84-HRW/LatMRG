@@ -49,13 +49,13 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     IntVec lowBoundaries;  // The low and high boundaries for the coefficients a_j 
     IntVec highBoundaries; // Default values are 1 and m-1 
 
-    // Settings for random next generator algorithms
+    // Settings for random search loop algorithms
     long numRandomRegions = 1;   // For search of random boxes (corresponds to N_r in the guide)
     IntVec subregionSize;        // The allowed sizes of the boxes h_i, indexed from 1 to k
     int numRandomPointsPerAk = 1; // Number of random values for a_1, ..., a_{k-1} per a_k which satisfies the maximal period condition; default = 1
     int numRandomAk = 1000; // Maximal number of random values fixed a_k
 
-    // Specific constraints on the generators
+    // Specific constraints on generators
     vector<long> numPowerTwo;  // Values of n_i (max number of powers of 2)
     vector<long> maxPowerTwo;  // Values of p_i (max power of 2)
     std::vector<int> equalityGroups; // Entry i-1 is the group of a_i.
@@ -101,25 +101,21 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     virtual Int getComponentModulus(int k) const { return this->modulus;}
     virtual long getComponentOrder(int k) const { return this->order;}
 
+
     /**
-    * Vector of multipliers
+    * Search strategies. Each function generates and tests candidate coefficient
+    * vectors until its search region or a configured limit is reached.
+    *
+    * Exhaustive: enumerates the full coefficient range.
+    * Random: draws independent vectors within the coefficient bounds.
+    * RandomBox: exhaustively enumerates randomly selected boxes.
+    * RandomByAk: draws several random vectors for each accepted a_k.
+    * RandomByAkBox: enumerates a random box for each accepted a_k.
+    * RandomApproxFactoring: draws vectors in approximate-factoring form.
+    * RandomApproxFactoringByAk: keeps each accepted a_k fixed for several such vectors.
+    * RandomPowerOfTwo: draws vectors as signed sums of powers of two.
+    * RandomPowerOfTwoByAk: keeps each accepted a_k fixed for several such vectors.
     */
-    NTL::Vec<NTL::ZZ> aa;
-
-    /**
-     * These functions generate the next MRG candidate according to the selected search strategy
-     * Each function returns true when a new valid generator is available and false otherwise.
-     */
-    bool nextGeneratorExhaustive();
-    bool nextGeneratorRandom();
-    bool nextGeneratorRandomBox();    
-    bool nextGeneratorRandomByAk();
-    bool nextGeneratorRandomByAkBox();
-    bool nextGeneratorRandomApproxFactoring();
-    bool nextGeneratorRandomApproxFactoringByAk();
-    bool nextGeneratorRandomPowersOfTwo();
-    bool nextGeneratorRandomPowersOfTwoByAk();
-
     void searchLoopExhaustive(IntLattice<Int, Real>* proj, int& old);
     void searchLoopRandom(IntLattice<Int, Real>* proj, int& old);
     void searchLoopRandomBox(IntLattice<Int, Real>* proj, int& old);
@@ -130,6 +126,21 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     void searchLoopRandomPowerOfTwo(IntLattice<Int, Real>* proj, int& old);
     void searchLoopRandomPowerOfTwoByAk(IntLattice<Int, Real>* proj, int& old);
 
+    /**
+    * Exhaustively tests the coefficient vectors in the specified box.
+    *
+    * 'boxLow' and 'boxHigh' give the lower and upper bounds for each coefficient
+    * a_i, indexed from 1 through order. 'proj' is the projection lattice used
+    * for FOM calculation; it may be null when FOM calculation is disabled.
+    * 'old' tracks the last progress-bar position and is updated when progress
+    * is printed.
+    *
+    * If 'akAlreadyAccepted' is true, the box must have a fixed a_k
+    * (boxLow[order] == boxHigh[order]) that has already passed the
+    * maximal-period test. Otherwise, the test is performed once per distinct
+    * a_k in the box. The search stops at the box boundary or a search limit.
+    */
+    void searchLoopBox(const IntVec& boxLow, const IntVec& boxHigh, IntLattice<Int, Real>* proj, int& old, bool akAlreadyAccepted = false);
     
     /*
     * These functions draw random coefficient with additional constaints.
@@ -155,11 +166,24 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
      * Resets generator-specific state before a new search, so repeated calls
      * to performSearch() start with a fresh enumeration or random search.
      */
-    void resetSearchState() override;
+    void resetSearchState() override {
+        mrg.reset();
+        WorkingLattice.reset();
+        aa.SetLength(this->order + 1);
+        if (lowBoundaries.length() == this->order + 1 && highBoundaries.length() == this->order + 1)  prepareEqualityGroups();
+    }
+
     /**
      * Returns the vector of multipliers
      */
     const IntVec& getCurrentCoefficients() const override {return aa;}
+
+    
+    /**
+    * Vector of multipliers
+    */
+    NTL::Vec<NTL::ZZ> aa;
+
     
     private:
 
@@ -178,31 +202,13 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
         return *mrg;
     }
 
-
     /*
-    * This lattice is re-used as output of nextGenerator type functions.
+    * This lattice is re-used for storing the current lattice if needed.
     * The function gets the lattice.
     */
     std::unique_ptr<MRGLattice<Int, Real>> WorkingLattice;
     MRGLattice<Int, Real>& getWorkingLattice() override;
 
-    /*
-    * Helper variables for box searches
-    */
-    long currentRandomRegion = 0;
-    Int currentSubIndex = Int(0);
-    IntVec alpha;
-    bool hasLastAk = false;
-    Int lastAk;
-    bool lastMaxPeriodResult = false;
-
-    long currentAkTrial = 0;
-    long currentAkSample = 0;
-    bool hasCurrentAk = false;
-    Int currentAk;    
-
-    Int exhaustiveIndex = Int(0);
-    
     /*
     * Helper variables for constraints on coefficients
     */
@@ -214,8 +220,6 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
 
 //============================================================================
 // Implementation
-
-
 
 /**
  * Returns the working lattice for the current candidate.
@@ -229,13 +233,74 @@ template<typename Int, typename Real> MRGLattice<Int, Real>& SearchMRG<Int, Real
 {
     if (!WorkingLattice) {
         WorkingLattice = std::make_unique<MRGLattice<Int, Real>>(
-            this->getModulus(), aa, this->maxdim
+            this->modulus, aa, this->maxdim
         );
     } else {
         WorkingLattice->setaa(aa);
     }
     return *WorkingLattice;
 }
+
+
+//===========================================================================
+
+/**
+* Exhaustively tests the coefficient vectors in the specified box.
+* It assumes valid coefficient bounds.
+*/
+template<typename Int, typename Real>
+void SearchMRG<Int, Real>::searchLoopBox(const IntVec& boxLow, const IntVec& boxHigh, IntLattice<Int, Real>* proj, int& old, bool akAlreadyAccepted)
+{
+    Int boxTotal(1);
+    Int akStepSize(1);
+    Int tmp, sideLength, offset;
+    Int offsetK(0);
+    for (int i = 1; i <= this->order; ++i) {
+        const Int sideLength = boxHigh[i] - boxLow[i] + 1;
+        boxTotal *= sideLength;
+        if (i < this->order)
+            akStepSize *= sideLength;
+    }
+    Int index(0);
+    bool hasTestedAk = akAlreadyAccepted && this->maxPeriod;
+    Int lastTestedAk;
+    if (hasTestedAk) lastTestedAk = boxLow[this->order];
+    bool lastPeriodResult = hasTestedAk;
+    while (index < boxTotal && !this->reachedNumGeneratorLimit() &&  !this->timer.timeOver(this->timeLimit))
+    {
+        tmp = index;
+        // Decode the index as a mixed-radix number. The first coefficient
+        // changes fastest, so all vectors with one a_k form a contiguous block.
+        for (int i = 1; i <= this->order; ++i) {
+            sideLength = boxHigh[i] - boxLow[i] + 1;
+            offset = tmp % sideLength;
+            tmp /= sideLength;
+            aa[i] = boxLow[i] + offset;
+            if (i == this->order)  offsetK = offset;
+        }
+        ++index;
+        ++this->numCandidatesExamined;
+        if (this->maxPeriod) {
+            if (!hasTestedAk || aa[this->order] != lastTestedAk) {
+                lastPeriodResult = getMRGComponent().maxPeriod(aa);
+                lastTestedAk = aa[this->order];
+                hasTestedAk = true;
+            }
+            if (!lastPeriodResult) {
+                // Move to the first vector with the next a_k.
+                // Skipped vectors are not counted as examined.
+                index = (offsetK + 1) * akStepSize;
+                if (this->progress) old = this->printProgress(old);
+                continue;
+            }
+            ++this->numMaxPeriodCandidates;
+        }
+        this->testCandidate(aa, proj);
+        if (this->progress) old = this->printProgress(old);
+        if (!this->calculateFOM && this->bestCandidates.full()) break;
+    }
+}
+
 
 //===========================================================================
 
@@ -267,69 +332,21 @@ void SearchMRG<Int, Real>::searchLoopRandom(IntLattice<Int, Real>* proj, int& ol
 //===========================================================================
 
 
- /**
-  * searchLoopExhaustive() performs an exhaustive enumeration of the admissible MRG 
-  * generators defined by the configuration. The coefficients of the recurrence 
-  * are obtained by decoding the current generator index into the corresponding 
-  * multiplier values within the prescribed ranges. Each admissible set of 
-  * coefficients is used to construct an MRG lattice that is subsequently analyzed 
-  * by the search procedure defined in the base class.
-  * If the search is restricted to generators with maximal period, then searchLoopExhaustive()
-  * gives the next generator with this property (otherwise they are skipped).
-  */
+/**
+* searchLoopExhaustive() performs an exhaustive enumeration of the admissible MRG 
+* generators defined by the configuration. Passes the full coefficient bounds to 
+* searchLoopBox(), which enumerates the coefficient vectors. If maximal period is 
+* required, vectors with an a_k that fails the period test are skipped. Accepted vectors 
+* are passed to testCandidate(); a lattice is constructed only when the FOM
+* is calculated.
+*/
 template<typename Int, typename Real>
 void SearchMRG<Int, Real>::searchLoopExhaustive(IntLattice<Int, Real>* proj, int& old)
 {
-    Int akStepSize(1);
-    for (int i = 1; i < this->order; ++i)
-        akStepSize *= highBoundaries[i] - lowBoundaries[i] + 1;
-    const Int total = getNumMultipliers();
-    Int index(0);
-    bool hasTestedAk = false;
-    Int lastTestedAk;
-    bool lastPeriodResult = false;
-    while (!this->reachedNumGeneratorLimit() && index < total && !this->timer.timeOver(this->timeLimit))
-    {
-        // Decode the index into a coefficient vector; a_k changes slowest.
-        Int tmp = index;
-        Int offsetK(0);
-        // Decode exhaustiveIndex as a mixed-radix number. For coefficient a_i,
-        // the radix is the number of values in [lowBoundaries[i], highBoundaries[i]].
-        // Taking the remainder selects its value; dividing by the radix prepares
-        // tmp for the next coefficient. Thus each index identifies one vector.
-        for (int i = 1; i <= this->order; ++i) {
-            const Int range = highBoundaries[i] - lowBoundaries[i] + 1;
-            const Int offset = tmp % range;
-            tmp /= range;
-            aa[i] = lowBoundaries[i] + offset;
-            if (i == this->order)
-                offsetK = offset;
-        }
-        ++index;
-        ++this->numCandidatesExamined;
-        if (this->maxPeriod) {
-            if (!hasTestedAk || aa[this->order] != lastTestedAk) {
-                lastPeriodResult = getMRGComponent().maxPeriod(aa);
-                lastTestedAk = aa[this->order];
-                hasTestedAk = true;
-            }
-            if (!lastPeriodResult) {
-                // Jump to the first vector with the next a_k.
-                // Skipped vectors are not counted as examined.
-                index = (offsetK + 1) * akStepSize;
-                if (this->progress) old = this->printProgress(old);
-                continue;
-            }
-            ++this->numMaxPeriodCandidates;
-        }
-        this->testCandidate(aa, proj);
-        if (this->progress) old = this->printProgress(old);
-        if (!this->calculateFOM && this->bestCandidates.full()) break;
-    }
+    searchLoopBox(lowBoundaries, highBoundaries, proj, old);
 }
 
 //===========================================================================
-
 
 /**
  * saarchLoopRandomByAk() performs a random search organized around the
@@ -348,7 +365,7 @@ void SearchMRG<Int, Real>::searchLoopRandomByAk(IntLattice<Int, Real>* proj, int
     long pointsForCurrentAk = 0;
     bool hasAcceptedAk = false;
     Int acceptedAk;
-    while (!this->reachedNumGeneratorLimit() && akTrials < numRandomAk && !this->timer.timeOver(this->timeLimit))
+    while (!this->reachedNumGeneratorLimit() && (hasAcceptedAk || akTrials < numRandomAk) && !this->timer.timeOver(this->timeLimit))
     {
         if (!hasAcceptedAk ||
             pointsForCurrentAk >= numRandomPointsPerAk) {
@@ -400,144 +417,79 @@ void SearchMRG<Int, Real>::searchLoopRandomByAk(IntLattice<Int, Real>* proj, int
 template<typename Int, typename Real>
 void SearchMRG<Int, Real>::searchLoopRandomByAkBox(IntLattice<Int, Real>* proj, int& old)
 {
-    Int offset, tmp;
-    Int boxSize(1);
-    for (int i = 1; i < this->order; ++i) boxSize *= subregionSize[i];
-    IntVec alpha;
-    alpha.SetLength(this->order + 1);
-    Int boxIndex(0);
-    Int acceptedAk;
+    IntVec boxLow, boxHigh;
+    Int ak;
+    bool acceptedAk;
+    boxLow.SetLength(this->order + 1);
+    boxHigh.SetLength(this->order + 1);
     long akTrials = 0;
-    bool hasAcceptedAk = false;
-    // Continue while an accepted a_k has a box to enumerate or another a_k can be drawn.
-    // This lets the final accepted box finish even after the a_k draw limit is reached.
-    // The generator and time limits still stop the search.
-    while (!this->reachedNumGeneratorLimit() && (hasAcceptedAk || akTrials < numRandomAk) && !this->timer.timeOver(this->timeLimit))
+    // Draw up to numRandomAk values of a_k, stopping earlier at a search limit.
+    // Each accepted a_k has its entire box enumerated in this iteration.
+    while (!this->reachedNumGeneratorLimit() && akTrials < numRandomAk && !this->timer.timeOver(this->timeLimit))
     {
-        // If there is no current good a_k, or if the current box has been
-         // exhausted, draw a new a_k and a new random box for the other
-         // coordinates.
-        if (!hasAcceptedAk || boxIndex >= boxSize) {
-            hasAcceptedAk = false;
-            boxIndex = Int(0);
-            while (akTrials < numRandomAk &&  !this->reachedNumGeneratorLimit() &&  !this->timer.timeOver(this->timeLimit))
-            {
-                 // Draw the lower corner of the box for coordinates
-                 // a_1, ..., a_{k-1}.
-                for (int i = 1; i < this->order; ++i) {
-                    alpha[i] = randInt(lowBoundaries[i], highBoundaries[i] - subregionSize[i] + 1);
-                    aa[i] = alpha[i];
-                }
-                acceptedAk = randInt(lowBoundaries[this->order], highBoundaries[this->order]);
-                aa[this->order] = acceptedAk;
-                ++akTrials;
-                if (this->maxPeriod && !getMRGComponent().maxPeriod(aa)) {
-                    ++this->numCandidatesExamined;
-                    if (this->progress) old = this->printProgress(old);
-                    continue;
-                }
-                hasAcceptedAk = true;
-                break;
+        acceptedAk = false;
+        // Draw boxes and values of a_k until one passes the period test,
+        // or until a search limit is reached.
+        while (akTrials < numRandomAk &&  !this->reachedNumGeneratorLimit() && !this->timer.timeOver(this->timeLimit))
+        {
+            for (int i = 1; i < this->order; ++i) {
+                boxLow[i] = randInt(lowBoundaries[i], highBoundaries[i] - subregionSize[i] + 1);
+                boxHigh[i] = boxLow[i] + subregionSize[i] - 1;
+                // Preserve the original behavior: the period test receives
+                // the first coefficient vector in the drawn box.
+                aa[i] = boxLow[i];
             }
-            if (!hasAcceptedAk) break;
+            ak = randInt(lowBoundaries[this->order], highBoundaries[this->order]);
+            aa[this->order] = ak;
+            ++akTrials;
+            if (this->maxPeriod && !getMRGComponent().maxPeriod(aa)) {
+                ++this->numCandidatesExamined;
+                if (this->progress) old = this->printProgress(old);
+                continue;
+            }
+            boxLow[this->order] = ak;
+            boxHigh[this->order] = ak;
+            acceptedAk = true;
+            break;
         }
-        // Decode the box index into offsets for a_1, ..., a_{k-1}.
-        tmp = boxIndex;
-        for (int i = 1; i < this->order; ++i) {
-            offset = tmp % subregionSize[i];
-            tmp /= subregionSize[i];
-            aa[i] = alpha[i] + offset;
-        }
-        aa[this->order] = acceptedAk;
-        ++boxIndex;
-        ++this->numCandidatesExamined;
-        if (this->maxPeriod) ++this->numMaxPeriodCandidates;
-        this->testCandidate(aa, proj);
-        if (this->progress) old = this->printProgress(old);
+        if (!acceptedAk) break;
+        // The entire accepted box is processed here, including when this
+        // was the final permitted a_k draw.
+        searchLoopBox(boxLow, boxHigh, proj, old, true);
         if (!this->calculateFOM && this->bestCandidates.full()) break;
     }
 }
 //===========================================================================
 
 /**
- * searchLoopRandomBox() performs a hybrid random-box search organized
- * around the las mulitpiliers a_k. It first draws values of a_k at
- * random and retains only those that satisfy the maximal-period requirement, if
- * wanted by the user.
- *
- * For each accepted value of a_k, the function draws a random box for the
- * remaining coefficients a_1, ..., a_{k-1}. The box is defined by the configured
- * subregion sizes h_i for i = 1, ..., k-1, while a_k remains fixed, corresponding
- * to h_k = 1. The points in this box are then checked exhaustively.
+ * searchLoopRandomBox() searches randomly selected boxes within the 
+ * coefficient bounds. For each box, the function draws a lower corner for every coefficient,
+ * including a_k. Its upper corner is determined by the configured
+ * subregion sizes. searchLoopBox() then enumerates the box exhaustively,
+ * testing the maximal-period condition once per distinct a_k in that box.
+ * 
+ * The search stops when all requested boxes have been visited or a
+ * generator, time, or period-only list limit is reached.
  */
 template<typename Int, typename Real>
 void SearchMRG<Int, Real>::searchLoopRandomBox(IntLattice<Int, Real>* proj, int& old)
 {
-    Int subregionTotal(1);
-    Int akStepSize(1);
-    for (int i = 1; i <= this->order; ++i) {
-        subregionTotal *= subregionSize[i];
-        if (i < this->order)
-            akStepSize *= subregionSize[i];
-    }
-    IntVec alpha;
-    alpha.SetLength(this->order + 1);
-    long randomRegion = 0;
-    Int subIndex(0);
-    bool hasTestedAk = false;
-    Int lastTestedAk;
-    bool lastPeriodResult = false;
-    Int tmp;
-    Int offsetK(0);
-    // Draw random boxes until the configured number of boxes has been reached.
-    // Stop earlier if the generator limit or time limit is reached.
-    while (!this->reachedNumGeneratorLimit() && randomRegion < numRandomRegions && !this->timer.timeOver(this->timeLimit))
+    IntVec boxLow, boxHigh;
+    boxLow.SetLength(this->order + 1);
+    boxHigh.SetLength(this->order + 1);
+    for (long region = 0;  region < numRandomRegions && !this->reachedNumGeneratorLimit() && !this->timer.timeOver(this->timeLimit);
+         ++region)
     {
-        if (subIndex >= subregionTotal) {
-            ++randomRegion;
-            subIndex = Int(0);
-            hasTestedAk = false;
-            continue;
-        }
-        // Draw the lower corner when entering a new box.
-        if (subIndex == 0) {
-            for (int i = 1; i <= this->order; ++i) {
-                alpha[i] = randInt(lowBoundaries[i], highBoundaries[i] - subregionSize[i] + 1);
-            }
-            hasTestedAk = false;
-        }
-        // Decode the box index; a_k changes slowest.
-        tmp = subIndex;
         for (int i = 1; i <= this->order; ++i) {
-            const Int offset = tmp % subregionSize[i];
-            tmp /= subregionSize[i];
-            aa[i] = alpha[i] + offset;
-            if (i == this->order)
-                offsetK = offset;
+            boxLow[i] = randInt(lowBoundaries[i], highBoundaries[i] - subregionSize[i] + 1);
+            boxHigh[i] = boxLow[i] + subregionSize[i] - 1;
         }
-        ++this->numCandidatesExamined;
-        if (this->maxPeriod) {
-            if (!hasTestedAk || aa[this->order] != lastTestedAk) {
-                setModulusIntP<Int>(this->modulus);
-                lastPeriodResult = getMRGComponent().maxPeriod(aa);
-                lastTestedAk = aa[this->order];
-                hasTestedAk = true;
-            }
-            if (!lastPeriodResult) {
-                // Jump to the first vector with the next a_k.
-                // Skipped vectors are not counted as examined.
-                subIndex = (offsetK + 1) * akStepSize;
-                if (this->progress) old = this->printProgress(old);
-                continue;
-            }
-            ++this->numMaxPeriodCandidates;
-        }
-        ++subIndex;
-        this->testCandidate(aa, proj);
-        if (this->progress) old = this->printProgress(old);
-        if (!this->calculateFOM && this->bestCandidates.full()) break;
+        searchLoopBox(boxLow, boxHigh, proj, old);
+        if (!this->calculateFOM && this->bestCandidates.full())
+            break;
     }
 }
+
 //===========================================================================
 
 /**
@@ -683,7 +635,7 @@ void SearchMRG<Int, Real>::searchLoopRandomPowerOfTwo(IntLattice<Int, Real>* pro
 //===========================================================================
 
 /**
- * Like nextLoopRandomPowerofTwo but for each accepted a_k 
+ * Like searchLoopRandomPowerofTwo but for each accepted a_k 
  * it draws several independent vectors for the remaining
  * coefficients while keeping a_k fixed.
  */
@@ -838,8 +790,6 @@ template<typename Int, typename Real> Int SearchMRG<Int, Real>::drawPowerOfTwoCo
     return value;
 }
 //===========================================================================
-
-#include "latmrg/SearchMRGNextGenerator.tpp"
 
 
 } // namespace LatMRG

@@ -93,7 +93,7 @@ struct SearchBase
     double timeLimit = 600.0; // CPU time limit in seconds. default = 600
     bool print_time = true; // Decides if running time is printed in printResults
     bool progress = false; // Prints the program progress between generators, default = false    
-    bool outputToGenFile = false; // When true, the output is written to a .gen file instead of the terminal, default false
+    bool outputToGenFile = false; // When true, the relevant output is written to a .gen file, default false
     std::string filename = "outputSearch.gen"; // Name of the .gen file, default = "outputSearch.gen"
     int verbose = 1; // Level of verbosity of the printed output, default = 1
     
@@ -166,20 +166,6 @@ struct SearchBase
    */
    virtual void resetSearchState() {}
 
-/**
- * This function performs the search using the supplied next-generator member function.
- *
- * nextGenerator is a member function of a derived search class, such as
- * SearchMRG::nextGeneratorRandom or SearchMRG::nextGeneratorExhaustive.
- * Each call updates the current coefficient vector and returns true when
- * a candidate is available, or false when the search is exhausted.
- *
- * SearchType identifies the derived class that owns this member function,
- * allowing SearchBase to use different search strategies without knowing
- * their concrete implementations.
- */
-  template<typename SearchType> int performSearchNextGenerator(bool (SearchType::*nextGenerator)());
-
   /**
   * Performs a search using a search-loop function from a derived class.
   *
@@ -187,9 +173,14 @@ struct SearchBase
   * conditions, and calls testCandidate() for candidates to be retained.
   */
   template<typename SearchType> int performSearch(void (SearchType::*searchLoop)(IntLattice<Int, Real>*, int&));
-   
 
-   
+  /**
+  * Evaluates and retains a candidate coefficient vector.
+  *
+  * If FOM calculation is enabled, constructs or updates the working lattice,
+  * computes its merit, and retains it if it ranks among the best candidates.
+  * Otherwise, retains the coefficients without constructing a lattice.
+  */ 
    void testCandidate(const IntVec& coefficients, IntLattice<Int, Real>* proj);
    
    /**
@@ -203,11 +194,7 @@ struct SearchBase
    * Checks if we the upper bound on the number of generators to be checked has been
    * reached. Depends on whether we restrict to maximal period generators.
    */
-   bool reachedNumGeneratorLimit() const
-   {
-     return (maxPeriod ? numMaxPeriodCandidates : numCandidatesExamined)
-           >= maxNumGen;
-   }
+   bool reachedNumGeneratorLimit() const {return (maxPeriod ? numMaxPeriodCandidates : numCandidatesExamined) >= maxNumGen;}
     
     /**
     * This function reports the progress of the current search. 
@@ -234,7 +221,7 @@ struct SearchBase
     // Technical variables
 
     /*
-    * This lattice is re-used as output of nextGenerator type functions
+    * This lattice is re-used for FoM calculation.
     */
     virtual Lat& getWorkingLattice() = 0;
 
@@ -412,6 +399,8 @@ int SearchBase<Int, Real, Lat>::performSearch( void (SearchType::*searchLoop)(In
         assert(fom != nullptr);
         proj = std::make_unique<IntLattice<Int, Real>>(modulus, fom->getTVector().length(), norm);
     }
+    // Initialize the modulus in NTL modular integer arithmetic.
+    // used for checking maximal period condition.
     setModulusIntP<Int>(modulus);
     timer.init();
     int old = 0;
@@ -437,8 +426,6 @@ int SearchBase<Int, Real, Lat>::performSearch( void (SearchType::*searchLoop)(In
         return std::numeric_limits<double>::quiet_NaN();
     return list.front().merit;
   }
-
-  #include "latmrg/SearchBaseNextGenerator.tpp"
 
 } // namespace LatMRG
 

@@ -86,7 +86,7 @@ int main()
     boxSize[1] = 10;
     boxSize[2] = 10;
 
-    // Configure the search settings shared by all four strategies.
+    // Configure the search settings shared by all strategies.
     SearchMRG<Int, Real> searcher;
     searcher.setModulus(m);
     searcher.setOrder(k);
