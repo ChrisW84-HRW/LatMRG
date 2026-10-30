@@ -269,8 +269,11 @@ void SearchMRG<Int, Real>::searchLoopBox(const IntVec& boxLow, const IntVec& box
     while (index < boxTotal && !this->reachedNumGeneratorLimit() &&  !this->timer.timeOver(this->timeLimit))
     {
         tmp = index;
-        // Decode the index as a mixed-radix number. The first coefficient
-        // changes fastest, so all vectors with one a_k form a contiguous block.
+        // Treat index as a number whose digit for a_i has base
+        // boxHigh[i] - boxLow[i] + 1. The remainder gives the offset of a_i
+        // within the box; division removes that digit before decoding a_{i+1}.
+        // Since a_1 is decoded first, it changes fastest and all vectors
+        // with the same a_k form a contiguous block.
         for (int i = 1; i <= this->order; ++i) {
             sideLength = boxHigh[i] - boxLow[i] + 1;
             offset = tmp % sideLength;
@@ -435,8 +438,6 @@ void SearchMRG<Int, Real>::searchLoopRandomByAkBox(IntLattice<Int, Real>* proj, 
             for (int i = 1; i < this->order; ++i) {
                 boxLow[i] = randInt(lowBoundaries[i], highBoundaries[i] - subregionSize[i] + 1);
                 boxHigh[i] = boxLow[i] + subregionSize[i] - 1;
-                // Preserve the original behavior: the period test receives
-                // the first coefficient vector in the drawn box.
                 aa[i] = boxLow[i];
             }
             ak = randInt(lowBoundaries[this->order], highBoundaries[this->order]);
