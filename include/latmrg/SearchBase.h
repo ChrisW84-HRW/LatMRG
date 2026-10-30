@@ -406,7 +406,6 @@ int SearchBase<Int, Real, Lat>::performSearch( void (SearchType::*searchLoop)(In
     int old = 0;
     if (progress)
         old = printProgress(-1);
-    // Unlike a next-generator function, this runs the entire search.
     (static_cast<SearchType*>(this)->*searchLoop)(proj.get(), old);
     if (progress) printProgress(old);
     if (verbose > 1) printResults();
