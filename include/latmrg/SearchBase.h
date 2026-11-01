@@ -157,15 +157,6 @@ struct SearchBase
     virtual long getComponentOrder(int k) const = 0;
     virtual const IntVec& getCurrentCoefficients() const = 0;
     
-   /**
-   * Resets generator type specific search state before a new search is started.
-   *
-   * The base implementation does nothing. Subclasses override this function
-   * to reset state variables used by their generator routines, such as
-   * enumeration counters.
-   */
-   virtual void resetSearchState() {}
-
   /**
   * Performs a search using a search-loop function from a derived class.
   *
@@ -392,7 +383,6 @@ int SearchBase<Int, Real, Lat>::performSearch( void (SearchType::*searchLoop)(In
     assert(calculateFOM || maxPeriod);
     numCandidatesExamined = 0;
     numMaxPeriodCandidates = 0;
-    resetSearchState();
     bestCandidates = CandidateList<Int>(numBestGen, bestFOM);
     std::unique_ptr<IntLattice<Int, Real>> proj;
     if (calculateFOM) {

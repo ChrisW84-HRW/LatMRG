@@ -166,11 +166,13 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
      * Resets generator-specific state before a new search, so repeated calls
      * to performSearch() start with a fresh enumeration or random search.
      */
-    void resetSearchState() override {
+    template<typename SearchType> int performSearch(void (SearchType::*searchLoop)(IntLattice<Int, Real>*, int&))
+    {
         mrg.reset();
         WorkingLattice.reset();
         aa.SetLength(this->order + 1);
-        if (lowBoundaries.length() == this->order + 1 && highBoundaries.length() == this->order + 1)  prepareEqualityGroups();
+        if (lowBoundaries.length() == this->order + 1 && highBoundaries.length() == this->order + 1) prepareEqualityGroups();
+        return SearchBase<Int, Real, MRGLattice<Int, Real>> ::template performSearch<SearchType>(searchLoop);
     }
 
     /**
