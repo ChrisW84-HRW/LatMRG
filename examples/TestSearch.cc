@@ -20,6 +20,7 @@
 
 #include "latmrg/SearchBase.h"
 #include "latmrg/SearchMRG.h"
+#include "latmrg/SearchCombinedMRG.h"
 
 
 using namespace LatMRG;
