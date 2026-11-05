@@ -59,6 +59,8 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     vector<long> numPowerTwo;  // Values of n_i (max number of powers of 2)
     vector<long> maxPowerTwo;  // Values of p_i (max power of 2)
     std::vector<int> equalityGroups; // Entry i-1 is the group of a_i.
+    IntVec approxFacMinAbs;  // Inclusive lower bound on |a_i| in approximate factoring.
+    IntVec approxFacMaxAbs;  // Inclusive upper bound on |a_i| in approximate factoring.
                        
     // Get and set functions
     const IntVec& getLowBoundaries() const {return lowBoundaries;}
@@ -85,6 +87,10 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     void setMaxPowerTwo(const vector<long>& values) {maxPowerTwo = values;}
     const std::vector<int>& getEqualityGroups() const {return equalityGroups;}
     void setEqualityGroups(const std::vector<int>& groups) {equalityGroups = groups;}
+    const IntVec& getApproxFacMinAbs() const { return approxFacMinAbs;}
+    void setApproxFacMinAbs(const IntVec& values) { approxFacMinAbs = values;}
+    const IntVec& getApproxFacMaxAbs() const { return approxFacMaxAbs;}
+    void setApproxFacMaxAbs(const IntVec& values) { approxFacMaxAbs = values;}
 
     Int getNumMultipliers() const
     {
@@ -511,16 +517,23 @@ void SearchMRG<Int, Real>::searchLoopRandomApproxFactoring(IntLattice<Int, Real>
     long bits;
     NTL::SqrRoot(maxJ, this->modulus);
     if (maxJ * maxJ == this->modulus) --maxJ;
+    // Check if bounds on factors have been set by the user
+    const bool useAbsBounds =  approxFacMinAbs.length() == this->order + 1 && approxFacMaxAbs.length() == this->order + 1;
     while (!this->reachedNumGeneratorLimit() && !this->timer.timeOver(this->timeLimit))
     {
         for (int i = 1; i <= this->order; ++i) {
-            // A single uniform draw encodes both j and two choice bits.
-            // Dividing by 4 gives j in [1, maxJ]; the remainder selects
-            // either j or floor(modulus / j) and determines its sign.
-            draw = randInt(Int(0), 4 * maxJ - 1);
-            j = draw / 4 + 1;
-            bits = NTL::conv<long>(draw % 4);
-            aa[i] = (bits & 1) ? this->modulus / j : j;
+            do {
+                // Check inside the rejection loop as restrictive bounds may require
+                // many draws before an admissible coefficient is found.
+                if (this->timer.timeOver(this->timeLimit))  return;
+                // A single uniform draw encodes both j and two choice bits.
+                // Dividing by 4 gives j in [1, maxJ]; the remainder selects
+                // either j or floor(modulus / j) and determines its sign.
+                draw = randInt(Int(0), 4 * maxJ - 1);
+                j = draw / 4 + 1;
+                bits = NTL::conv<long>(draw % 4);
+                aa[i] = (bits & 1) ? this->modulus / j : j;
+            } while (useAbsBounds && (aa[i] < approxFacMinAbs[i] || aa[i] > approxFacMaxAbs[i]));
             if (bits & 2) aa[i] = -aa[i];
         }
         ++this->numCandidatesExamined;
@@ -554,6 +567,8 @@ void SearchMRG<Int, Real>::searchLoopRandomApproxFactoringByAk(IntLattice<Int, R
     long pointsForCurrentAk = 0;
     bool hasAcceptedAk = false;
     Int acceptedAk;
+    // Check if bounds on factors have been set by the user
+    const bool useAbsBounds =  approxFacMinAbs.length() == this->order + 1 && approxFacMaxAbs.length() == this->order + 1;
     while (!this->reachedNumGeneratorLimit() && (hasAcceptedAk || akTrials < numRandomAk) && !this->timer.timeOver(this->timeLimit))
     {
         if (!hasAcceptedAk ||
@@ -564,13 +579,18 @@ void SearchMRG<Int, Real>::searchLoopRandomApproxFactoringByAk(IntLattice<Int, R
             // Draw a_k until one passes the period test or a limit is reached.
             while (akTrials < numRandomAk && !this->reachedNumGeneratorLimit() && !this->timer.timeOver(this->timeLimit))
             {
-                // A single uniform draw encodes both j and two choice bits.
-                // Dividing by 4 gives j in [1, maxJ]; the remainder selects
-                // either j or floor(modulus / j) and determines its sign.
-                draw = randInt(Int(0), 4 * maxJ - 1);
-                j = draw / 4 + 1;
-                bits = NTL::conv<long>(draw % 4);
-                acceptedAk = (bits & 1) ? this->modulus / j : j;
+                // Check the positive value against the bounds before
+                // applying its randomly selected sign.
+                do {
+                    if (this->timer.timeOver(this->timeLimit)) return;
+                    // A single uniform draw encodes both j and two choice bits.
+                    // Dividing by 4 gives j in [1, maxJ]; the remainder selects
+                    // either j or floor(modulus / j) and determines its sign.
+                    draw = randInt(Int(0), 4 * maxJ - 1);
+                    j = draw / 4 + 1;
+                    bits = NTL::conv<long>(draw % 4);
+                    acceptedAk = (bits & 1) ? this->modulus / j : j;
+                } while (useAbsBounds &&(acceptedAk < approxFacMinAbs[this->order] ||  acceptedAk > approxFacMaxAbs[this->order]));
                 if (bits & 2) acceptedAk = -acceptedAk;
                 aa[this->order] = acceptedAk;
                 ++akTrials;
@@ -587,10 +607,13 @@ void SearchMRG<Int, Real>::searchLoopRandomApproxFactoringByAk(IntLattice<Int, R
         }
         // Draw the remaining coefficients while keeping a_k fixed.
         for (int i = 1; i < this->order; ++i) {
-            draw = randInt(Int(0), 4 * maxJ - 1);
-            j = draw / 4 + 1;
-            bits = NTL::conv<long>(draw % 4);
-            aa[i] = (bits & 1) ? this->modulus / j : j;
+            do {
+                if (this->timer.timeOver(this->timeLimit)) return;
+                draw = randInt(Int(0), 4 * maxJ - 1);
+                j = draw / 4 + 1;
+                bits = NTL::conv<long>(draw % 4);
+                aa[i] = (bits & 1) ? this->modulus / j : j;
+                } while (useAbsBounds && (aa[i] < approxFacMinAbs[i] || aa[i] > approxFacMaxAbs[i]));
             if (bits & 2) aa[i] = -aa[i];
         }
         aa[this->order] = acceptedAk;

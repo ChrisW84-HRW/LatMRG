@@ -319,21 +319,27 @@ struct SearchBase
 
 /**
  * Writes the retained candidates to a .gen file.
- * The format is provisional and needs to be checked against the old .gen format.
+ * The format corresponds to the old one from the Modula-2 version.
  */
 template<typename Int, typename Real, typename Lat>
 void SearchBase<Int, Real, Lat>::writeGenFile() const
 {
     std::ofstream genFile(filename, std::ios::out | std::ios::trunc);
-    if (!genFile) {
-        std::cerr << "Failed to open " << filename << '\n';
-        return;
+    if (!genFile)  throw std::runtime_error("Failed to open .gen file: " + filename);
+    genFile << numComp << '\n';
+    for (long c = 0; c < numComp; ++c) {
+        genFile << getComponentModulus(c) << ' ' << getComponentOrder(c) << '\n';
     }
-    for (const auto& candidate : bestCandidates.getList()) {
-        genFile << toStringGenType(genType) << '\n';
-        genFile << candidate.getModulus() << '\n';
-        genFile << candidate.getAa() << '\n';
+    genFile << bestCandidates.getList().size() << '\n';
+    for (const Candidate<Int>& candidate : bestCandidates.getList()) {
+      const IntVec& coefficients = candidate.getAa();
+      for (long j = 1; j < coefficients.length(); ++j) {
+        if (j > 1) genFile << ' ';
+        genFile << coefficients[j];
+      }
+    genFile << '\n';
     }
+    if (!genFile) throw std::runtime_error("Failed to write .gen file: " + filename);
 }
 
 

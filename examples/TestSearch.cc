@@ -135,6 +135,7 @@ int main()
     searcher.setLowBoundaries(lower);
     searcher.setHighBoundaries(upper);
     searcher.setEqualityGroups({1, 1});
+    searcher.setOutputToGenFile(true);
     runSearchLoop("Pure random search loop with first and second coefficient equal", searcher, fom, &SearchMRG<Int, Real>::searchLoopRandom);
 
     return 0;

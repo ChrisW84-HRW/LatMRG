@@ -24,10 +24,7 @@ class CandidateList
 {
 public:
 
-    CandidateList(unsigned long maxLength, bool best)
-        : m_max(maxLength), m_best(best)
-    {
-    }
+    CandidateList(unsigned long maxLength, bool best) : m_max(maxLength), m_best(best)  {  }
 
     void add(const Candidate<Int>& candidate)
     {
