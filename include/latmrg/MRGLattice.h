@@ -549,8 +549,9 @@ void MRGLattice<Int, Real>::computey() {
       m_y[j] = 0;
    m_y[k - 1] = 1;
    for (j = k; j < m_maxCoord + k - 1; j++) {
-      for (jj = 1; jj <= k; jj++)
-         m_y[j] += m_aa[jj] * m_y[j - jj] % this->m_modulo;
+    m_y[j] = 0;
+    for (jj = 1; jj <= k; jj++)
+        m_y[j] += m_aa[jj] * m_y[j - jj] % this->m_modulo;
    }
 }
 

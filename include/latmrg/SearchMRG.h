@@ -61,6 +61,9 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     std::vector<int> equalityGroups; // Entry i-1 is the group of a_i.
     IntVec approxFacMinAbs;  // Inclusive lower bound on |a_i| in approximate factoring.
     IntVec approxFacMaxAbs;  // Inclusive upper bound on |a_i| in approximate factoring.
+
+    // Approximate Factoring Condition
+    bool requireApproxFactoringCondition = false;
                        
     // Get and set functions
     const IntVec& getLowBoundaries() const {return lowBoundaries;}
@@ -91,7 +94,13 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     void setApproxFacMinAbs(const IntVec& values) { approxFacMinAbs = values;}
     const IntVec& getApproxFacMaxAbs() const { return approxFacMaxAbs;}
     void setApproxFacMaxAbs(const IntVec& values) { approxFacMaxAbs = values;}
+    
+    bool getRequireApproxFactoringCondition() const {return requireApproxFactoringCondition;}
+    void setRequireApproxFactoringCondition(bool value) {requireApproxFactoringCondition = value;}
 
+    /**
+    * Returns the number of multipliers within the given bounds
+    */
     Int getNumMultipliers() const
     {
         Int total(1);
@@ -182,6 +191,23 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     }
 
     /**
+     *  Return true if every nonzero coefficient satisfies the approximate
+     *  factoring condition |a_i| * (modulus % |a_i|) < modulus.
+     *  Zero coefficients are ignored; return false at the first failure.
+    */
+    bool satisfiesApproxFactoringCondition() const {
+        for (long i = 1; i <= this->order; ++i) {
+            if (aa[i] == Int(0)) continue;
+            const Int value = aa[i] < Int(0) ? -aa[i] : aa[i];
+            // Equivalent to (modulus % value) < modulus / value,
+            // without integer-division rounding in the comparison.
+            if (value * (this->modulus % value) >= this->modulus)
+                return false;
+            }
+        return true;
+    }
+
+    /**
      * Returns the vector of multipliers
      */
     const IntVec& getCurrentCoefficients() const override {return aa;}
@@ -237,18 +263,14 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
  * computing a figure of merit, so period-only searches do not construct
  * a lattice.
  */
-template<typename Int, typename Real> MRGLattice<Int, Real>& SearchMRG<Int, Real>::getWorkingLattice()
+template<typename Int, typename Real>
+MRGLattice<Int, Real>& SearchMRG<Int, Real>::getWorkingLattice()
 {
-    if (!WorkingLattice) {
-        WorkingLattice = std::make_unique<MRGLattice<Int, Real>>(
-            this->modulus, aa, this->maxdim
-        );
-    } else {
-        WorkingLattice->setaa(aa);
-    }
+    WorkingLattice = std::make_unique<MRGLattice<Int, Real>>(
+        this->modulus, aa, this->maxdim
+    );
     return *WorkingLattice;
 }
-
 
 //===========================================================================
 
@@ -263,6 +285,7 @@ void SearchMRG<Int, Real>::searchLoopBox(const IntVec& boxLow, const IntVec& box
     Int akStepSize(1);
     Int tmp, sideLength, offset;
     Int offsetK(0);
+    unsigned iterationsUntilTimeCheck = 0;
     for (int i = 1; i <= this->order; ++i) {
         const Int sideLength = boxHigh[i] - boxLow[i] + 1;
         boxTotal *= sideLength;
@@ -274,22 +297,39 @@ void SearchMRG<Int, Real>::searchLoopBox(const IntVec& boxLow, const IntVec& box
     Int lastTestedAk;
     if (hasTestedAk) lastTestedAk = boxLow[this->order];
     bool lastPeriodResult = hasTestedAk;
-    while (index < boxTotal && !this->reachedNumGeneratorLimit() &&  !this->timer.timeOver(this->timeLimit))
-    {
+    while (index < boxTotal && !this->reachedNumGeneratorLimit())
+    {   
+        // Check time only upon every 1.000 call of the loop. This reduces runtim a lot
+        if (iterationsUntilTimeCheck == 0) {
+            if (this->timer.timeOver(this->timeLimit))
+                break;
+            iterationsUntilTimeCheck = 1000;
+        }
+        --iterationsUntilTimeCheck;
         tmp = index;
         // Treat index as a number whose digit for a_i has base
         // boxHigh[i] - boxLow[i] + 1. The remainder gives the offset of a_i
         // within the box; division removes that digit before decoding a_{i+1}.
         // Since a_1 is decoded first, it changes fastest and all vectors
         // with the same a_k form a contiguous block.
-        for (int i = 1; i <= this->order; ++i) {
-            sideLength = boxHigh[i] - boxLow[i] + 1;
-            offset = tmp % sideLength;
-            tmp /= sideLength;
-            aa[i] = boxLow[i] + offset;
-            if (i == this->order)  offsetK = offset;
+        if (this->order == 1) {
+            aa[1] = boxLow[1] + index;
+            offsetK = index;
+        } else {
+            tmp = index;
+            for (int i = 1; i <= this->order; ++i) {
+                sideLength = boxHigh[i] - boxLow[i] + 1;
+                offset = tmp % sideLength;
+                tmp /= sideLength;
+                aa[i] = boxLow[i] + offset;
+                if (i == this->order) offsetK = offset;
+            }
         }
         ++index;
+        if (requireApproxFactoringCondition && !satisfiesApproxFactoringCondition())
+        {
+            continue;
+        }
         ++this->numCandidatesExamined;
         if (this->maxPeriod) {
             if (!hasTestedAk || aa[this->order] != lastTestedAk) {
@@ -312,7 +352,6 @@ void SearchMRG<Int, Real>::searchLoopBox(const IntVec& boxLow, const IntVec& box
     }
 }
 
-
 //===========================================================================
 
 /**
@@ -326,8 +365,17 @@ void SearchMRG<Int, Real>::searchLoopRandom(IntLattice<Int, Real>* proj, int& ol
 {
     // Keep drawing until the time limit or the maximal number of generators 
     // is reached.
-    while (!this->reachedNumGeneratorLimit() && !this->timer.timeOver(this->timeLimit))
+    unsigned iterationsUntilTimeCheck = 0;
+    while (!this->reachedNumGeneratorLimit())
     {
+        
+        // Check time only upon every 1.000 call of the loop. This reduces runtim a lot
+        if (iterationsUntilTimeCheck == 0) {
+            if (this->timer.timeOver(this->timeLimit))
+                break;
+            iterationsUntilTimeCheck = 1000;
+        }
+        --iterationsUntilTimeCheck;
         drawRandomCoefficients();
         ++this->numCandidatesExamined;
         if (this->progress) old = this->printProgress(old);
@@ -376,16 +424,30 @@ void SearchMRG<Int, Real>::searchLoopRandomByAk(IntLattice<Int, Real>* proj, int
     long pointsForCurrentAk = 0;
     bool hasAcceptedAk = false;
     Int acceptedAk;
-    while (!this->reachedNumGeneratorLimit() && (hasAcceptedAk || akTrials < numRandomAk) && !this->timer.timeOver(this->timeLimit))
+    unsigned iterationsUntilTimeCheck = 0;
+    while (!this->reachedNumGeneratorLimit() && (hasAcceptedAk || akTrials < numRandomAk))
     {
+        // Check time only upon every 1.000 call of the loop. This reduces runtim a lot
+        if (iterationsUntilTimeCheck == 0) {
+            if (this->timer.timeOver(this->timeLimit))
+                break;
+            iterationsUntilTimeCheck = 1000;
+        }
+        --iterationsUntilTimeCheck;
         if (!hasAcceptedAk ||
             pointsForCurrentAk >= numRandomPointsPerAk) {
             hasAcceptedAk = false;
             pointsForCurrentAk = 0;            
             // Keep drawing until the time limit or the maximal number of generators 
             // or the maximal number of trials for a_k is reached.
-            while (akTrials < numRandomAk && !this->reachedNumGeneratorLimit() && !this->timer.timeOver(this->timeLimit))
+            while (akTrials < numRandomAk && !this->reachedNumGeneratorLimit())
             {
+                if (iterationsUntilTimeCheck == 0) {
+                    if (this->timer.timeOver(this->timeLimit))
+                        break;
+                    iterationsUntilTimeCheck = 1000;
+                }
+                --iterationsUntilTimeCheck;
                 acceptedAk = randInt(lowBoundaries[this->order], highBoundaries[this->order]);
                 aa[this->order] = acceptedAk;
                 ++akTrials;
@@ -434,15 +496,28 @@ void SearchMRG<Int, Real>::searchLoopRandomByAkBox(IntLattice<Int, Real>* proj, 
     boxLow.SetLength(this->order + 1);
     boxHigh.SetLength(this->order + 1);
     long akTrials = 0;
+    unsigned iterationsUntilTimeCheck = 0;
     // Draw up to numRandomAk values of a_k, stopping earlier at a search limit.
     // Each accepted a_k has its entire box enumerated in this iteration.
-    while (!this->reachedNumGeneratorLimit() && akTrials < numRandomAk && !this->timer.timeOver(this->timeLimit))
+    while (!this->reachedNumGeneratorLimit() && akTrials < numRandomAk)
     {
+        if (iterationsUntilTimeCheck == 0) {
+            if (this->timer.timeOver(this->timeLimit))
+                break;
+            iterationsUntilTimeCheck = 1000;
+        }
+        --iterationsUntilTimeCheck;
         acceptedAk = false;
         // Draw boxes and values of a_k until one passes the period test,
         // or until a search limit is reached.
-        while (akTrials < numRandomAk &&  !this->reachedNumGeneratorLimit() && !this->timer.timeOver(this->timeLimit))
+        while (akTrials < numRandomAk &&  !this->reachedNumGeneratorLimit())
         {
+            if (iterationsUntilTimeCheck == 0) {
+                if (this->timer.timeOver(this->timeLimit))
+                    break;
+                iterationsUntilTimeCheck = 1000;
+            }
+             --iterationsUntilTimeCheck;
             for (int i = 1; i < this->order; ++i) {
                 boxLow[i] = randInt(lowBoundaries[i], highBoundaries[i] - subregionSize[i] + 1);
                 boxHigh[i] = boxLow[i] + subregionSize[i] - 1;
@@ -483,12 +558,18 @@ void SearchMRG<Int, Real>::searchLoopRandomByAkBox(IntLattice<Int, Real>* proj, 
 template<typename Int, typename Real>
 void SearchMRG<Int, Real>::searchLoopRandomBox(IntLattice<Int, Real>* proj, int& old)
 {
+    unsigned iterationsUntilTimeCheck = 0;
     IntVec boxLow, boxHigh;
     boxLow.SetLength(this->order + 1);
     boxHigh.SetLength(this->order + 1);
-    for (long region = 0;  region < numRandomRegions && !this->reachedNumGeneratorLimit() && !this->timer.timeOver(this->timeLimit);
-         ++region)
+    for (long region = 0;  region < numRandomRegions && !this->reachedNumGeneratorLimit(); ++region)
     {
+        if (iterationsUntilTimeCheck == 0) {
+            if (this->timer.timeOver(this->timeLimit))
+                break;
+            iterationsUntilTimeCheck = 1000;
+        }
+        --iterationsUntilTimeCheck;
         for (int i = 1; i <= this->order; ++i) {
             boxLow[i] = randInt(lowBoundaries[i], highBoundaries[i] - subregionSize[i] + 1);
             boxHigh[i] = boxLow[i] + subregionSize[i] - 1;
@@ -519,13 +600,25 @@ void SearchMRG<Int, Real>::searchLoopRandomApproxFactoring(IntLattice<Int, Real>
     if (maxJ * maxJ == this->modulus) --maxJ;
     // Check if bounds on factors have been set by the user
     const bool useAbsBounds =  approxFacMinAbs.length() == this->order + 1 && approxFacMaxAbs.length() == this->order + 1;
-    while (!this->reachedNumGeneratorLimit() && !this->timer.timeOver(this->timeLimit))
+    unsigned iterationsUntilTimeCheck = 0;
+    while (!this->reachedNumGeneratorLimit())
     {
+        if (iterationsUntilTimeCheck == 0) {
+            if (this->timer.timeOver(this->timeLimit))
+                break;
+            iterationsUntilTimeCheck = 1000;
+        }
+        --iterationsUntilTimeCheck;
         for (int i = 1; i <= this->order; ++i) {
             do {
                 // Check inside the rejection loop as restrictive bounds may require
                 // many draws before an admissible coefficient is found.
-                if (this->timer.timeOver(this->timeLimit))  return;
+                if (iterationsUntilTimeCheck == 0) {
+                    if (this->timer.timeOver(this->timeLimit))
+                        return;
+                    iterationsUntilTimeCheck = 1000;
+                }
+                --iterationsUntilTimeCheck;
                 // A single uniform draw encodes both j and two choice bits.
                 // Dividing by 4 gives j in [1, maxJ]; the remainder selects
                 // either j or floor(modulus / j) and determines its sign.
@@ -569,20 +662,38 @@ void SearchMRG<Int, Real>::searchLoopRandomApproxFactoringByAk(IntLattice<Int, R
     Int acceptedAk;
     // Check if bounds on factors have been set by the user
     const bool useAbsBounds =  approxFacMinAbs.length() == this->order + 1 && approxFacMaxAbs.length() == this->order + 1;
-    while (!this->reachedNumGeneratorLimit() && (hasAcceptedAk || akTrials < numRandomAk) && !this->timer.timeOver(this->timeLimit))
+    unsigned iterationsUntilTimeCheck = 0;
+    while (!this->reachedNumGeneratorLimit() && (hasAcceptedAk || akTrials < numRandomAk))
     {
+        if (iterationsUntilTimeCheck == 0) {
+            if (this->timer.timeOver(this->timeLimit))
+                break;
+            iterationsUntilTimeCheck = 1000;
+        }
+        --iterationsUntilTimeCheck;
         if (!hasAcceptedAk ||
             pointsForCurrentAk >= numRandomPointsPerAk)
         {
             hasAcceptedAk = false;
             pointsForCurrentAk = 0;
             // Draw a_k until one passes the period test or a limit is reached.
-            while (akTrials < numRandomAk && !this->reachedNumGeneratorLimit() && !this->timer.timeOver(this->timeLimit))
+            while (akTrials < numRandomAk && !this->reachedNumGeneratorLimit())
             {
+                if (iterationsUntilTimeCheck == 0) {
+                    if (this->timer.timeOver(this->timeLimit))
+                        break;
+                    iterationsUntilTimeCheck = 1000;
+                }
+                --iterationsUntilTimeCheck;
                 // Check the positive value against the bounds before
                 // applying its randomly selected sign.
                 do {
-                    if (this->timer.timeOver(this->timeLimit)) return;
+                    if (iterationsUntilTimeCheck == 0) {
+                        if (this->timer.timeOver(this->timeLimit))
+                            return;
+                        iterationsUntilTimeCheck = 1000;
+                    }
+                    --iterationsUntilTimeCheck;
                     // A single uniform draw encodes both j and two choice bits.
                     // Dividing by 4 gives j in [1, maxJ]; the remainder selects
                     // either j or floor(modulus / j) and determines its sign.
@@ -608,7 +719,12 @@ void SearchMRG<Int, Real>::searchLoopRandomApproxFactoringByAk(IntLattice<Int, R
         // Draw the remaining coefficients while keeping a_k fixed.
         for (int i = 1; i < this->order; ++i) {
             do {
-                if (this->timer.timeOver(this->timeLimit)) return;
+                if (iterationsUntilTimeCheck == 0) {
+                    if (this->timer.timeOver(this->timeLimit))
+                        return;
+                    iterationsUntilTimeCheck = 1000;
+                }
+                --iterationsUntilTimeCheck;
                 draw = randInt(Int(0), 4 * maxJ - 1);
                 j = draw / 4 + 1;
                 bits = NTL::conv<long>(draw % 4);
@@ -639,8 +755,15 @@ void SearchMRG<Int, Real>::searchLoopRandomApproxFactoringByAk(IntLattice<Int, R
 template<typename Int, typename Real>
 void SearchMRG<Int, Real>::searchLoopRandomPowerOfTwo(IntLattice<Int, Real>* proj, int& old)
 {
-    while (!this->reachedNumGeneratorLimit() && !this->timer.timeOver(this->timeLimit))
+    unsigned iterationsUntilTimeCheck = 0;
+    while (!this->reachedNumGeneratorLimit())
     {
+        if (iterationsUntilTimeCheck == 0) {
+            if (this->timer.timeOver(this->timeLimit))
+                break;
+            iterationsUntilTimeCheck = 1000;
+        }
+        --iterationsUntilTimeCheck;
         for (int i = 1; i <= this->order; ++i)
             aa[i] = drawPowerOfTwoCoefficient(i);
         ++this->numCandidatesExamined;
@@ -672,16 +795,29 @@ void SearchMRG<Int, Real>::searchLoopRandomPowerOfTwoByAk(IntLattice<Int, Real>*
     long pointsForCurrentAk = 0;
     bool hasAcceptedAk = false;
     Int acceptedAk;
-    while (!this->reachedNumGeneratorLimit() && (hasAcceptedAk || akTrials < numRandomAk) && !this->timer.timeOver(this->timeLimit))
+    unsigned iterationsUntilTimeCheck = 0;
+    while (!this->reachedNumGeneratorLimit() && (hasAcceptedAk || akTrials < numRandomAk))
     {
+        if (iterationsUntilTimeCheck == 0) {
+            if (this->timer.timeOver(this->timeLimit))
+                break;
+            iterationsUntilTimeCheck = 1000;
+        }
+        --iterationsUntilTimeCheck;
         if (!hasAcceptedAk ||
             pointsForCurrentAk >= numRandomPointsPerAk)
         {
             hasAcceptedAk = false;
             pointsForCurrentAk = 0;
             // Draw a_k until one passes the period test or a limit is reached.
-            while (akTrials < numRandomAk && !this->reachedNumGeneratorLimit() && !this->timer.timeOver(this->timeLimit))
+            while (akTrials < numRandomAk && !this->reachedNumGeneratorLimit())
             {
+                if (iterationsUntilTimeCheck == 0) {
+                    if (this->timer.timeOver(this->timeLimit))
+                        break;
+                    iterationsUntilTimeCheck = 1000;
+                }
+                --iterationsUntilTimeCheck;
                 acceptedAk = drawPowerOfTwoCoefficient(this->order);
                 aa[this->order] = acceptedAk;
                 ++akTrials;
