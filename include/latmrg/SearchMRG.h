@@ -129,6 +129,7 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     * RandomByAkBox: enumerates a random box for each accepted a_k.
     * RandomApproxFactoring: draws vectors in approximate-factoring form.
     * RandomApproxFactoringByAk: keeps each accepted a_k fixed for several such vectors.
+    * RandomApproxFactoringByAkBox: Box search where all elements satisfy the approximate factoring condition.
     * RandomPowerOfTwo: draws vectors as signed sums of powers of two.
     * RandomPowerOfTwoByAk: keeps each accepted a_k fixed for several such vectors.
     */
@@ -139,10 +140,9 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     void searchLoopRandomByAkBox(IntLattice<Int, Real>* proj, int& old);
     void searchLoopRandomApproxFactoring(IntLattice<Int, Real>* proj, int& old);
     void searchLoopRandomApproxFactoringByAk(IntLattice<Int, Real>* proj, int& old);
+    void searchLoopRandomApproxFactoringByAkBox(IntLattice<Int, Real>* proj, int& old);
     void searchLoopRandomPowerOfTwo(IntLattice<Int, Real>* proj, int& old);
     void searchLoopRandomPowerOfTwoByAk(IntLattice<Int, Real>* proj, int& old);
-
-    void searchLoopRandomApproxFactoringByAkBox(IntLattice<Int, Real>* proj, int& old);
 
     /**
     * Exhaustively tests the coefficient vectors in the specified box.
