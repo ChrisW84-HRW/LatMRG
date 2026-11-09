@@ -35,8 +35,7 @@ int main()
 
     NormaBestLat norma(-log(m), k, maxdim);
     WeightsUniform weights(1.0);
-    FigureOfMeritDualM<Int, Real> fom(
-        t, weights, norma, &red, true);
+    FigureOfMeritDualM<Int, Real> fom(t, weights, norma, &red, true);
     fom.setLowBound(0.0);
 
     IntVec lower, upper;

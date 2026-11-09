@@ -35,8 +35,7 @@ int main()
 
     NormaBestLat norma(-log(m), k, maxdim);
     WeightsUniform weights(1.0);
-    FigureOfMeritDualM<Int, Real> fom(
-        t, weights, norma, &red, true);
+    FigureOfMeritDualM<Int, Real> fom(t, weights, norma, &red, true);
     fom.setLowBound(0.0);
 
     IntVec lower, upper, boxSize;
@@ -83,12 +82,10 @@ int main()
     searcher.setOutputToGenFile(false);
 
     const std::clock_t start = std::clock();
-    searcher.performSearch(
-        &SearchMRG<Int, Real>::searchLoopRandomApproxFactoringByAkBox);
+    searcher.performSearch(&SearchMRG<Int, Real>::searchLoopRandomApproxFactoringByAkBox);
     const std::clock_t end = std::clock();
 
-    const double cpuSeconds =
-        static_cast<double>(end - start) / CLOCKS_PER_SEC;
+    const double cpuSeconds = static_cast<double>(end - start) / CLOCKS_PER_SEC;
 
     std::cout << std::setprecision(12)
               << "\nSearch CPU time: " << cpuSeconds << " seconds\n"
