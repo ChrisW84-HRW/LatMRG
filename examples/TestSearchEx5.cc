@@ -60,23 +60,19 @@ int main()
     searcher.setBestFOM(true);
     searcher.setNumBestGen(10);
 
-    // With maxPeriod=true, this limits maximal-period candidates.
     // It is set above the number reported for this search.
-    searcher.setMaxNumGen(13183);
+    searcher.setMaxNumGen(13184);
     searcher.setTimeLimit(7200.0);
     searcher.setProgress(true);
     searcher.setVerbose(1);
     searcher.setOutputToGenFile(false);
-
     
     const std::clock_t start = std::clock();
-    searcher.performSearch(
-        &SearchMRG<Int, Real>::searchLoopExhaustive);
+    searcher.performSearch(&SearchMRG<Int, Real>::searchLoopExhastive);
     const std::clock_t end = std::clock();
     const double cpuSeconds = static_cast<double>(end - start) / CLOCKS_PER_SEC;
     std::cout << "Search CPU time: " << cpuSeconds << " seconds\n";
     std::cout << "Best merit: " << searcher.getBestMerit() << "\n";
-    
 
     std::cout << std::setprecision(12)
               << "\nCandidates passing coefficient condition: "
@@ -85,7 +81,6 @@ int main()
               << searcher.numMaxPeriodCandidates << '\n'
               << "Best merit: "
               << searcher.getBestMerit() << '\n';
-
     int rank = 0;
     for (const Candidate<Int>& candidate :
          searcher.bestCandidates.getList())
@@ -95,6 +90,5 @@ int main()
                   << ", merit = " << candidate.getMerit()
                   << '\n';
     }
-
     return 0;
 }
