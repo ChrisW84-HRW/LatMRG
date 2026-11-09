@@ -26,6 +26,7 @@
 #include "latmrg/SearchBase.h"
 #include "latmrg/EnumTypes.h"
 #include "latticetester/Util.h"
+#include "latmrg/Primitivity.h"
 
 namespace LatMRG {
 
@@ -62,7 +63,7 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     IntVec approxFacMinAbs;  // Inclusive lower bound on |a_i| in approximate factoring.
     IntVec approxFacMaxAbs;  // Inclusive upper bound on |a_i| in approximate factoring.
 
-    // Approximate Factoring Condition
+    // Apply approximate factoring condition in box search
     bool requireApproxFactoringCondition = false;
                        
     // Get and set functions
@@ -141,6 +142,8 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     void searchLoopRandomPowerOfTwo(IntLattice<Int, Real>* proj, int& old);
     void searchLoopRandomPowerOfTwoByAk(IntLattice<Int, Real>* proj, int& old);
 
+    void searchLoopRandomApproxFactoringByAkBox(IntLattice<Int, Real>* proj, int& old);
+
     /**
     * Exhaustively tests the coefficient vectors in the specified box.
     *
@@ -150,12 +153,12 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     * 'old' tracks the last progress-bar position and is updated when progress
     * is printed.
     *
-    * If 'akAlreadyAccepted' is true, the box must have a fixed a_k
+    * If 'akPassedCondition1' is true, the box must have a fixed a_k
     * (boxLow[order] == boxHigh[order]) that has already passed the
     * maximal-period test. Otherwise, the test is performed once per distinct
     * a_k in the box. The search stops at the box boundary or a search limit.
     */
-    void searchLoopBox(const IntVec& boxLow, const IntVec& boxHigh, IntLattice<Int, Real>* proj, int& old, bool akAlreadyAccepted = false);
+    void searchLoopBox(const IntVec& boxLow, const IntVec& boxHigh, IntLattice<Int, Real>* proj, int& old, bool akPassedCondition1 = false);
     
     /*
     * These functions draw random coefficient with additional constaints.
@@ -176,6 +179,21 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     * according to the vector equalityGroups
     */
     void prepareEqualityGroups();
+
+    
+    /**
+     * Advances 'index' to the next order-one coefficient that satisfies the
+     * approximate factoring condition, or sets it to boxTotal if none remains.
+    * 'low' and 'high' are the inclusive coefficient bounds; 'low' + 'index' is the
+    * coefficient currently being considered. 'boxTotal' is the number of
+    * coefficients in the box, and root is 'floor(sqrt(modulus))'.
+    * Currently requires a positive coefficient bounds.
+    */
+    bool nextPositiveApproxFactoringCoefficient(const Int& start, const Int& high, const Int& root, Int& result) const;
+    bool nextNegativeApproxFactoringCoefficient(const Int& start, const Int& high, const Int& root,  Int& result) const;
+    bool nextApproxFactoringCoefficient(const Int& start, const Int& high, const Int& root, Int& result) const;
+    void nextIndexApproxFactoring(Int& index, const IntVec& boxLow, const IntVec& boxHigh, const Int& boxTotal, 
+        const Int& root, const IntVec& sideLengths, const IntVec& firstAllowed) const;
 
     /**
      * Resets generator-specific state before a new search, so repeated calls
@@ -212,13 +230,14 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
      */
     const IntVec& getCurrentCoefficients() const override {return aa;}
 
-    
     /**
     * Vector of multipliers
     */
     NTL::Vec<NTL::ZZ> aa;
 
-    
+    // Tests if a_k is a primitive element
+    bool maxPeriodCondition1(const IntVec& coefficients);
+
     private:
 
     /**
@@ -247,9 +266,9 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     * Helper variables for constraints on coefficients
     */
     int numEqualityGroups = 0;
-    std::vector<Int> groupLow;
-    std::vector<Int> groupHigh;
-    std::vector<Int> groupValue;
+    IntVec groupLow;
+    IntVec groupHigh;
+    IntVec groupValue;
 };
 
 //============================================================================
@@ -279,7 +298,7 @@ MRGLattice<Int, Real>& SearchMRG<Int, Real>::getWorkingLattice()
 * It assumes valid coefficient bounds.
 */
 template<typename Int, typename Real>
-void SearchMRG<Int, Real>::searchLoopBox(const IntVec& boxLow, const IntVec& boxHigh, IntLattice<Int, Real>* proj, int& old, bool akAlreadyAccepted)
+void SearchMRG<Int, Real>::searchLoopBox(const IntVec& boxLow, const IntVec& boxHigh, IntLattice<Int, Real>* proj, int& old, bool akPassedCondition1)
 {
     Int boxTotal(1);
     Int akStepSize(1);
@@ -287,19 +306,34 @@ void SearchMRG<Int, Real>::searchLoopBox(const IntVec& boxLow, const IntVec& box
     Int offsetK(0);
     unsigned iterationsUntilTimeCheck = 0;
     for (int i = 1; i <= this->order; ++i) {
-        const Int sideLength = boxHigh[i] - boxLow[i] + 1;
-        boxTotal *= sideLength;
+        const Int length = boxHigh[i] - boxLow[i] + 1;
+        boxTotal *= length;
         if (i < this->order)
-            akStepSize *= sideLength;
+            akStepSize *= length;
+    }
+    Int root(0);
+    IntVec sideLengths;
+    IntVec firstAllowed;
+    if (requireApproxFactoringCondition) {
+        NTL::SqrRoot(root, this->modulus);
+        sideLengths.SetLength(this->order + 1);
+        firstAllowed.SetLength(this->order + 1);
+        for (int i = 1; i <= this->order; ++i) {
+            sideLengths[i] = boxHigh[i] - boxLow[i] + 1;
+            if (!nextApproxFactoringCoefficient(boxLow[i], boxHigh[i], root, firstAllowed[i]))
+                return; // No vector in this box can pass.
+        }
     }
     Int index(0);
-    bool hasTestedAk = akAlreadyAccepted && this->maxPeriod;
+    if (requireApproxFactoringCondition) {
+        nextIndexApproxFactoring(index, boxLow, boxHigh, boxTotal, root, sideLengths, firstAllowed);
+    }
+    bool hasTestedAk = akPassedCondition1 && this->maxPeriod;
     Int lastTestedAk;
     if (hasTestedAk) lastTestedAk = boxLow[this->order];
-    bool lastPeriodResult = hasTestedAk;
+    bool lastAkPassedCondition1 = hasTestedAk;
     while (index < boxTotal && !this->reachedNumGeneratorLimit())
-    {   
-        // Check time only upon every 1.000 call of the loop. This reduces runtim a lot
+    {
         if (iterationsUntilTimeCheck == 0) {
             if (this->timer.timeOver(this->timeLimit))
                 break;
@@ -307,40 +341,33 @@ void SearchMRG<Int, Real>::searchLoopBox(const IntVec& boxLow, const IntVec& box
         }
         --iterationsUntilTimeCheck;
         tmp = index;
-        // Treat index as a number whose digit for a_i has base
-        // boxHigh[i] - boxLow[i] + 1. The remainder gives the offset of a_i
-        // within the box; division removes that digit before decoding a_{i+1}.
-        // Since a_1 is decoded first, it changes fastest and all vectors
-        // with the same a_k form a contiguous block.
-        if (this->order == 1) {
-            aa[1] = boxLow[1] + index;
-            offsetK = index;
-        } else {
-            tmp = index;
-            for (int i = 1; i <= this->order; ++i) {
-                sideLength = boxHigh[i] - boxLow[i] + 1;
-                offset = tmp % sideLength;
-                tmp /= sideLength;
-                aa[i] = boxLow[i] + offset;
-                if (i == this->order) offsetK = offset;
-            }
+        for (int i = 1; i <= this->order; ++i) {
+            sideLength = boxHigh[i] - boxLow[i] + 1;
+            offset = tmp % sideLength;
+            tmp /= sideLength;
+            aa[i] = boxLow[i] + offset;
+            if (i == this->order) offsetK = offset;
         }
         ++index;
-        if (requireApproxFactoringCondition && !satisfiesApproxFactoringCondition())
-        {
-            continue;
-        }
+        if (requireApproxFactoringCondition) { nextIndexApproxFactoring(index, boxLow, boxHigh, boxTotal, root, sideLengths, firstAllowed); }
         ++this->numCandidatesExamined;
         if (this->maxPeriod) {
             if (!hasTestedAk || aa[this->order] != lastTestedAk) {
-                lastPeriodResult = getMRGComponent().maxPeriod(aa);
+                lastAkPassedCondition1 = maxPeriodCondition1(aa);
                 lastTestedAk = aa[this->order];
                 hasTestedAk = true;
             }
-            if (!lastPeriodResult) {
+            if (!lastAkPassedCondition1) {
                 // Move to the first vector with the next a_k.
                 // Skipped vectors are not counted as examined.
                 index = (offsetK + 1) * akStepSize;
+                if (requireApproxFactoringCondition) {
+                    nextIndexApproxFactoring(index, boxLow, boxHigh, boxTotal, root, sideLengths, firstAllowed);
+                }
+                if (this->progress) old = this->printProgress(old);
+                continue;
+            }
+            if (!getMRGComponent().maxPeriod23(aa)) {
                 if (this->progress) old = this->printProgress(old);
                 continue;
             }
@@ -351,7 +378,6 @@ void SearchMRG<Int, Real>::searchLoopBox(const IntVec& boxLow, const IntVec& box
         if (!this->calculateFOM && this->bestCandidates.full()) break;
     }
 }
-
 //===========================================================================
 
 /**
@@ -451,7 +477,7 @@ void SearchMRG<Int, Real>::searchLoopRandomByAk(IntLattice<Int, Real>* proj, int
                 acceptedAk = randInt(lowBoundaries[this->order], highBoundaries[this->order]);
                 aa[this->order] = acceptedAk;
                 ++akTrials;
-                if (this->maxPeriod && !getMRGComponent().maxPeriod(aa)) {
+                if (this->maxPeriod && !maxPeriodCondition1(aa)) {
                     ++this->numCandidatesExamined;
                     if (this->progress) old = this->printProgress(old);
                     continue;
@@ -466,9 +492,13 @@ void SearchMRG<Int, Real>::searchLoopRandomByAk(IntLattice<Int, Real>* proj, int
         drawRandomCoefficients(this->order);
         ++pointsForCurrentAk;
         ++this->numCandidatesExamined;
-        if (this->maxPeriod) ++this->numMaxPeriodCandidates;
-        this->testCandidate(aa, proj);
         if (this->progress) old = this->printProgress(old);
+        // Conditions 2 and 3 must be checked for every completed vector.
+        if (this->maxPeriod) {
+            if (!getMRGComponent().maxPeriod23(aa)) continue;
+            ++this->numMaxPeriodCandidates;
+        }
+        this->testCandidate(aa, proj);
         if (!this->calculateFOM && this->bestCandidates.full()) break;
     }
 }
@@ -508,7 +538,7 @@ void SearchMRG<Int, Real>::searchLoopRandomByAkBox(IntLattice<Int, Real>* proj, 
         }
         --iterationsUntilTimeCheck;
         acceptedAk = false;
-        // Draw boxes and values of a_k until one passes the period test,
+        // Draw boxes and values of a_k until one passes condition 1,
         // or until a search limit is reached.
         while (akTrials < numRandomAk &&  !this->reachedNumGeneratorLimit())
         {
@@ -526,7 +556,7 @@ void SearchMRG<Int, Real>::searchLoopRandomByAkBox(IntLattice<Int, Real>* proj, 
             ak = randInt(lowBoundaries[this->order], highBoundaries[this->order]);
             aa[this->order] = ak;
             ++akTrials;
-            if (this->maxPeriod && !getMRGComponent().maxPeriod(aa)) {
+            if (this->maxPeriod && !maxPeriodCondition1(aa)) {
                 ++this->numCandidatesExamined;
                 if (this->progress) old = this->printProgress(old);
                 continue;
@@ -676,7 +706,7 @@ void SearchMRG<Int, Real>::searchLoopRandomApproxFactoringByAk(IntLattice<Int, R
         {
             hasAcceptedAk = false;
             pointsForCurrentAk = 0;
-            // Draw a_k until one passes the period test or a limit is reached.
+            // Draw a_k until one passes condition 1 or a limit is reached.
             while (akTrials < numRandomAk && !this->reachedNumGeneratorLimit())
             {
                 if (iterationsUntilTimeCheck == 0) {
@@ -705,7 +735,7 @@ void SearchMRG<Int, Real>::searchLoopRandomApproxFactoringByAk(IntLattice<Int, R
                 if (bits & 2) acceptedAk = -acceptedAk;
                 aa[this->order] = acceptedAk;
                 ++akTrials;
-                if (this->maxPeriod && !getMRGComponent().maxPeriod(aa))
+                if (this->maxPeriod && !maxPeriodCondition1(aa))
                 {
                     ++this->numCandidatesExamined;
                     if (this->progress) old = this->printProgress(old);
@@ -735,7 +765,13 @@ void SearchMRG<Int, Real>::searchLoopRandomApproxFactoringByAk(IntLattice<Int, R
         aa[this->order] = acceptedAk;
         ++pointsForCurrentAk;
         ++this->numCandidatesExamined;
-        if (this->maxPeriod) ++this->numMaxPeriodCandidates;
+        if (this->maxPeriod) {
+            if (!getMRGComponent().maxPeriod23(aa)) {
+                if (this->progress) old = this->printProgress(old);
+                continue;
+            }
+            ++this->numMaxPeriodCandidates;
+        }
         this->testCandidate(aa, proj);
         if (this->progress) old = this->printProgress(old);
         if (!this->calculateFOM && this->bestCandidates.full()) break;
@@ -779,8 +815,6 @@ void SearchMRG<Int, Real>::searchLoopRandomPowerOfTwo(IntLattice<Int, Real>* pro
         if (!this->calculateFOM && this->bestCandidates.full()) break;
     }
 }
-
-
 //===========================================================================
 
 /**
@@ -809,7 +843,7 @@ void SearchMRG<Int, Real>::searchLoopRandomPowerOfTwoByAk(IntLattice<Int, Real>*
         {
             hasAcceptedAk = false;
             pointsForCurrentAk = 0;
-            // Draw a_k until one passes the period test or a limit is reached.
+            // Draw a_k until it passes condition 1 or a limit is reached.
             while (akTrials < numRandomAk && !this->reachedNumGeneratorLimit())
             {
                 if (iterationsUntilTimeCheck == 0) {
@@ -821,7 +855,7 @@ void SearchMRG<Int, Real>::searchLoopRandomPowerOfTwoByAk(IntLattice<Int, Real>*
                 acceptedAk = drawPowerOfTwoCoefficient(this->order);
                 aa[this->order] = acceptedAk;
                 ++akTrials;
-                if (this->maxPeriod && !getMRGComponent().maxPeriod(aa))
+                if (this->maxPeriod && !maxPeriodCondition1(aa))
                 {
                     ++this->numCandidatesExamined;
                     if (this->progress) old = this->printProgress(old);
@@ -838,10 +872,137 @@ void SearchMRG<Int, Real>::searchLoopRandomPowerOfTwoByAk(IntLattice<Int, Real>*
         aa[this->order] = acceptedAk;
         ++pointsForCurrentAk;
         ++this->numCandidatesExamined;
-        if (this->maxPeriod) ++this->numMaxPeriodCandidates;
+        if (this->maxPeriod) {
+            if (!getMRGComponent().maxPeriod23(aa)) {
+                if (this->progress) old = this->printProgress(old);
+                continue;
+            }
+            ++this->numMaxPeriodCandidates;
+        }
         this->testCandidate(aa, proj);
         if (this->progress) old = this->printProgress(old);
         if (!this->calculateFOM && this->bestCandidates.full()) break;
+    }
+}
+//===========================================================================
+
+/**
+ * Draws random boxes in the ordered sets of coefficients satisfying
+ * approximate factoring. Each region contains subregionSize[order]
+ * consecutive admissible a_k values. For each a_k passing condition 1,
+ * independently draws a box of subregionSize[i] consecutive admissible
+ * values for every i < order.
+ *
+ * Supported coefficient ranges are positive-only, negative-only, or
+ * the fixed value zero. A range crossing zero is not supported.
+ */
+template<typename Int, typename Real>
+void SearchMRG<Int, Real>::searchLoopRandomApproxFactoringByAkBox(
+    IntLattice<Int, Real>* proj, int& old)
+{
+    const int k = this->order;
+    bool accepted;
+    long countAk, firstAk;
+    Int root;
+    NTL::SqrRoot(root, this->modulus);
+    // Stores the admissible values for approximate factoring for all multipliers
+    std::vector<std::vector<Int>> admissible(k + 1);
+    // width is the number of admissible values in its box
+    std::vector<long> width(k + 1);
+    // first[i] is the box's starting position in admissible[i]
+    std::vector<long> first(k + 1);
+    // offset[i] is the current position within that box
+    std::vector<long> offset(k + 1);
+
+    unsigned iterationsUntilTimeCheck = 0;
+
+    // Check the time limit on the first call and then every 1,000 calls.
+    // Return true when the limit has expired. The countdown is shared by
+    // all loops that call this helper.
+    auto timeExpired = [&]() -> bool {
+        if (iterationsUntilTimeCheck == 0) {
+            if (this->timer.timeOver(this->timeLimit))
+                return true;
+            iterationsUntilTimeCheck = 1000;
+        }
+        --iterationsUntilTimeCheck;
+        return false;
+    };
+
+    // Build the intersection of each coefficient's bounds with the values
+    // satisfying approximate factoring, in increasing order. The resulting
+    // list supplies both the admissible count and the values used to draw boxes.
+    for (int i = 1; i <= k; ++i) {
+        const Int& low = lowBoundaries[i];
+        const Int& high = highBoundaries[i];
+        width[i] = NTL::conv<long>(subregionSize[i]);
+        Int start = low;
+        while (start <= high) {
+            Int next;
+            if (!nextApproxFactoringCoefficient(start, high, root, next)) break;
+            admissible[i].push_back(next);
+            start = next + 1;
+        }
+        if (admissible[i].size() < static_cast<std::size_t>(width[i]))
+        {
+            // No box of the requested size fits in this range.
+            return;
+        }
+    }
+    // Process up to numRandomRegions randomly selected regions, stopping
+    // early if the configured generator limit is reached.
+    for (long region = 0;  region < numRandomRegions && !this->reachedNumGeneratorLimit();  ++region)
+    {
+        if (timeExpired()) return;
+        countAk = static_cast<long>(admissible[k].size());
+        firstAk = randInt(0L, countAk - width[k]);
+        for (long akOffset = 0; akOffset < width[k]; ++akOffset) {
+            if (this->reachedNumGeneratorLimit() || timeExpired()) return;
+            aa[k] = admissible[k][firstAk + akOffset];
+            // Only condition 1 can be tested once for this a_k.
+            if (this->maxPeriod && !maxPeriodCondition1(aa)) {
+                ++this->numCandidatesExamined;
+                if (this->progress) old = this->printProgress(old);
+                continue;
+            }
+            // Draw a fresh admissible box for the remaining
+            // coefficients. a_1 changes fastest during enumeration.
+            for (int i = 1; i < k; ++i) {
+                const long count = admissible[i].size();
+                first[i] = randInt(0L, count - width[i]);
+                offset[i] = 0;
+            }
+            bool boxDone = false;
+            while (!boxDone) {
+                if (this->reachedNumGeneratorLimit() ||  timeExpired())
+                    return;
+                for (int i = 1; i < k; ++i) {
+                    aa[i] = admissible[i][first[i] + offset[i]];
+                }
+                ++this->numCandidatesExamined;
+                // Conditions 2 and 3 depend on the completed vector.
+                accepted =  !this->maxPeriod ||  getMRGComponent().maxPeriod23(aa);
+                if (accepted) {
+                    if (this->maxPeriod) ++this->numMaxPeriodCandidates;
+                    this->testCandidate(aa, proj);
+                }
+                if (this->progress) old = this->printProgress(old);
+                if (!this->calculateFOM && this->bestCandidates.full()) return;
+                // Increment offsets as a mixed-radix odometer.
+                // With k == 1 there are no other coefficients:
+                // the current a_k was the entire box.
+                if (k == 1) { boxDone = true;
+                } else {
+                    for (int i = 1; i < k; ++i) {
+                        ++offset[i];
+                        if (offset[i] < width[i])  break;
+                        offset[i] = 0;
+                        if (i == k - 1)
+                            boxDone = true;
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -872,9 +1033,9 @@ template<typename Int, typename Real> void SearchMRG<Int, Real>::prepareEquality
         throw std::invalid_argument("One equality-group label is required per coefficient");
 
     numEqualityGroups = 0;
-    groupLow.resize(k + 1);
-    groupHigh.resize(k + 1);
-    groupValue.resize(k + 1);
+    groupLow.SetLength(k + 1);
+    groupHigh.SetLength(k + 1);
+    groupValue.SetLength(k + 1);
     std::vector<bool> seen(k + 1, false);
     for (int i = 1; i <= k; ++i) {
         const int group = equalityGroups.empty() ? i : equalityGroups[i - 1];
@@ -950,6 +1111,141 @@ template<typename Int, typename Real> Int SearchMRG<Int, Real>::drawPowerOfTwoCo
             value -= power;
     }
     return value;
+}
+//===========================================================================
+
+/**
+ * Finds the smallest passing positive coefficient in [start, high].
+ * root is floor(sqrt(modulus)); modulus must be positive.
+ */
+template<typename Int, typename Real>
+bool SearchMRG<Int, Real>::nextPositiveApproxFactoringCoefficient(const Int& start, const Int& high,  const Int& root, Int& result) const
+{
+    if (start > high || start > this->modulus) return false;
+    // All positive coefficients up to floor(sqrt(modulus)) pass.
+    if (start <= root) {result = start; return true;}
+    // For start > sqrt(modulus), q = floor(modulus / start).
+    // The next passing coefficient is b = floor(modulus / q),
+    // or b - 1 when q divides modulus and b - 1 >= start.
+    const Int q = this->modulus / start;
+    const Int b = this->modulus / q;
+    result = (b * q == this->modulus && b - 1 >= start) ? b - 1 : b;
+    return result <= high;
+}
+//===========================================================================
+
+/**
+ * Finds the smallest passing negative coefficient in [start, high].
+ * Requires start and high to be negative, and modulus to be positive.
+ * root is floor(sqrt(modulus)).
+ */
+template<typename Int, typename Real>
+bool SearchMRG<Int, Real>::nextNegativeApproxFactoringCoefficient(const Int& start, const Int& high, const Int& root, Int& result) const
+{
+    if (start > high) return false;
+    Int a = -start;
+    // Magnitudes above m fail; -m is the first possible match.
+    if (a > this->modulus) a = this->modulus;
+    // All magnitudes up to root pass.
+    if (a <= root) {  result = -a;  return result <= high;}
+    const Int q = this->modulus / a;
+    const Int b = this->modulus / q;
+    // If a already passes, keep it. Otherwise, the next passing
+    // negative coefficient has a smaller magnitude, found using q + 1.
+    const Int nextA = (a == b || (b * q == this->modulus && a == b - 1)) ? a  : this->modulus / (q + 1);
+    result = -nextA;
+    return result <= high;
+}
+//===========================================================================
+
+/**
+ * Finds the next passing coefficient in a single-sign range.
+ * The range must be entirely positive or entirely negative.
+ */
+template<typename Int, typename Real>
+bool SearchMRG<Int, Real>::nextApproxFactoringCoefficient(const Int& start, const Int& high, const Int& root, Int& result) const
+{
+    if (high < Int(0)) { return nextNegativeApproxFactoringCoefficient(start, high, root, result);}
+    return nextPositiveApproxFactoringCoefficient(start, high, root, result);
+}
+//===========================================================================
+
+
+/**
+ * Advances index to the first vector at or after its current position
+ * whose positive coefficients all pass approximate factoring. Sets
+ * index to boxTotal if no such vector remains.
+ *
+ * sideLengths contains each coefficient range's width; firstAllowed
+ * contains its smallest passing coefficient. Both are indexed 1..order.
+ */
+template<typename Int, typename Real>
+void SearchMRG<Int, Real>::nextIndexApproxFactoring(Int& index, const IntVec& boxLow, const IntVec& boxHigh, const Int& boxTotal, 
+    const Int& root, const IntVec& sideLengths, const IntVec& firstAllowed) const
+{
+    if (index >= boxTotal) return;
+    if (this->order == 1) {
+        Int next;
+        if (nextApproxFactoringCoefficient(boxLow[1] + index, boxHigh[1], root, next))
+            index = next - boxLow[1];
+        else
+            index = boxTotal;
+        return;
+    }
+    // Decode index into coefficients, with a_1 changing fastest.
+    IntVec digits;
+    digits.SetLength(this->order + 1);
+    Int remaining = index;
+    for (int i = 1; i <= this->order; ++i) {
+        digits[i] = boxLow[i] + remaining % sideLengths[i];
+        remaining /= sideLengths[i];
+    }
+    bool carry = false;
+    for (int i = 1; i <= this->order; ++i) {
+        const Int original = digits[i];
+        const Int start = carry ? original + 1 : original;
+        Int next;
+        if (!nextApproxFactoringCoefficient(start, boxHigh[i], root, next))
+        {
+            // No passing value remains in this digit. Advance a
+            // higher digit instead.
+            carry = true;
+            continue;
+        }
+        if (carry || next != original) {
+            // This digit advanced, so restart all faster-changing
+            // digits at their smallest passing values.
+            for (int j = 1; j < i; ++j)
+                digits[j] = firstAllowed[j];
+        }
+        digits[i] = next;
+        carry = false;
+        // Continue: higher digits must also be checked. One of them
+        // might not satisfy approximate factoring yet.
+    }
+    if (carry) {index = boxTotal; return;}
+    // Encode the passing vector back into a mixed-radix index.
+    Int nextIndex(0);
+    Int stride(1);
+    for (int i = 1; i <= this->order; ++i) {
+        nextIndex += (digits[i] - boxLow[i]) * stride;
+        stride *= sideLengths[i];
+    }
+    index = nextIndex;
+}
+//===========================================================================
+
+/**
+ * Test if a_k is a primitive element.
+ */
+template<typename Int, typename Real>
+bool SearchMRG<Int, Real>::maxPeriodCondiiton1(const IntVec& coefficients)
+{
+    typename FlexModInt<Int>::PolX f;
+    getCharacPoly<Int>(f, coefficients);
+    Int constantTerm;
+    NTL::conv(constantTerm, rep(ConstTerm(f)));
+    return isPrimitiveElement<Int>(-constantTerm, getMRGComponent().getFactmm1(), this->modulus);
 }
 //===========================================================================
 

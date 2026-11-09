@@ -5,6 +5,8 @@
 #include <cstdint>
 #include <iomanip>
 #include <iostream>
+#include <ctime>
+#include <cmath>
 #include <NTL/ZZ.h>
 
 #include "latmrg/IntFactorization.h"
@@ -60,7 +62,7 @@ int main()
 
     // With maxPeriod=true, this limits maximal-period candidates.
     // It is set above the number reported for this search.
-    searcher.setMaxNumGen(20000);
+    searcher.setMaxNumGen(13183);
     searcher.setTimeLimit(7200.0);
     searcher.setProgress(true);
     searcher.setVerbose(1);
