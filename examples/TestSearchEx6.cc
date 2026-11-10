@@ -1,4 +1,9 @@
-// TestSearchEx6.cc
+/**
+ * In this example, we check that the results of the new LatMRG version
+ * are consistent with Example 7.6 reported in the article [rLEC97c].
+ * We found no relevant discrepancy which cannot be explained by
+ * randomness. But a significant reduction in runtime.
+ */
 
 #define TYPES_CODE ZD     // Int = ZZ, Real = double
 
