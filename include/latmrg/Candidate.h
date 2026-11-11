@@ -16,6 +16,7 @@ struct Candidate
 
     const Int& getModulus() const { return modulus; }
     const IntVec& getAa() const { return aa; }
+    int64_t getOrder() const { return aa.length() - 1;}
     double getMerit() const { return merit; }
 };
 
@@ -67,6 +68,9 @@ public:
     {
         return m_candidates.back().merit;
     }
+
+    const Int& getModulus() const { return m_candidates.front().getModulus();}
+    int64_t getOrder() const { return m_candidates.front().getOrder();}
 
 private:
     std::list<Candidate<Int>> m_candidates;
