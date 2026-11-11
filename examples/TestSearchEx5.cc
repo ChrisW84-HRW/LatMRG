@@ -71,7 +71,7 @@ int main()
     searcher.setOutputToGenFile(false);
     
     const std::clock_t start = std::clock();
-    searcher.performSearch(&SearchMRG<Int, Real>::searchLoopExhastive);
+    searcher.performSearch(&SearchMRG<Int, Real>::searchLoopExhaustive);
     const std::clock_t end = std::clock();
     const double cpuSeconds = static_cast<double>(end - start) / CLOCKS_PER_SEC;
     std::cout << "Search CPU time: " << cpuSeconds << " seconds\n";

@@ -111,9 +111,11 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
         return total;
     }
 
-    // These functions are not called at all but need to be there,
-    // because we need them for combined MRGs and thus virtual functions
-    // have been defined in the SearchBase class.
+    /**
+     * These functions are not called at all but need to be there,
+     * because we need them for combined MRGs and thus virtual functions
+     * have been defined in the SearchBase class.
+     */
     virtual Int getComponentModulus(int k) const { return this->modulus;}
     virtual long getComponentOrder(int k) const { return this->order;}
 
@@ -179,16 +181,15 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     * according to the vector equalityGroups
     */
     void prepareEqualityGroups();
-
     
     /**
      * Advances 'index' to the next order-one coefficient that satisfies the
      * approximate factoring condition, or sets it to boxTotal if none remains.
-    * 'low' and 'high' are the inclusive coefficient bounds; 'low' + 'index' is the
-    * coefficient currently being considered. 'boxTotal' is the number of
-    * coefficients in the box, and root is 'floor(sqrt(modulus))'.
-    * Currently requires a positive coefficient bounds.
-    */
+     * 'low' and 'high' are the inclusive coefficient bounds; 'low' + 'index' is the
+     * coefficient currently being considered. 'boxTotal' is the number of
+     * coefficients in the box, and root is 'floor(sqrt(modulus))'.
+     * Currently requires a positive coefficient bounds.
+     */
     bool nextPositiveApproxFactoringCoefficient(const Int& start, const Int& high, const Int& root, Int& result) const;
     bool nextNegativeApproxFactoringCoefficient(const Int& start, const Int& high, const Int& root,  Int& result) const;
     bool nextApproxFactoringCoefficient(const Int& start, const Int& high, const Int& root, Int& result) const;
@@ -224,6 +225,14 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
             }
         return true;
     }
+
+    /**
+     * These functions count the number of approximate factoring values within the range
+     * 'low' to 'high'. Moreover, the 'root' of the modulus needs to be passed as a parameter
+     * so that this calculation needs to be performed less often.
+     */
+    Int countApproxFactoringValues(const Int& low, const Int& high, const Int& root) const;
+    Int approxFactoringValueAt(const Int& low, const Int& high, const Int& root, const Int& count, const Int& position) const;
 
     /**
      * Returns the vector of multipliers
@@ -897,20 +906,21 @@ void SearchMRG<Int, Real>::searchLoopRandomPowerOfTwoByAk(IntLattice<Int, Real>*
  * the fixed value zero. A range crossing zero is not supported.
  */
 template<typename Int, typename Real>
-void SearchMRG<Int, Real>::searchLoopRandomApproxFactoringByAkBox(
-    IntLattice<Int, Real>* proj, int& old)
+void SearchMRG<Int, Real>::searchLoopRandomApproxFactoringByAkBox(IntLattice<Int, Real>* proj, int& old)
 {
     const int k = this->order;
     bool accepted;
-    long countAk, firstAk;
-    Int root;
+    Int firstAk, root;
     NTL::SqrRoot(root, this->modulus);
-    // Stores the admissible values for approximate factoring for all multipliers
-    std::vector<std::vector<Int>> admissible(k + 1);
+    // Stores the number of admissible coefficients per dimension
+    IntVec admissibleCount;
+    admissibleCount.SetLength(k + 1);
     // width is the number of admissible values in its box
     std::vector<long> width(k + 1);
-    // first[i] is the box's starting position in admissible[i]
-    std::vector<long> first(k + 1);
+    // first[i] is the starting position in the implicit ordered set
+    // of admissible coefficients for dimension i
+    IntVec first;
+    first.SetLength(k+1);
     // offset[i] is the current position within that box
     std::vector<long> offset(k + 1);
 
@@ -929,36 +939,21 @@ void SearchMRG<Int, Real>::searchLoopRandomApproxFactoringByAkBox(
         return false;
     };
 
-    // Build the intersection of each coefficient's bounds with the values
-    // satisfying approximate factoring, in increasing order. The resulting
-    // list supplies both the admissible count and the values used to draw boxes.
+    // Count admissible values in each range without storing the values.
     for (int i = 1; i <= k; ++i) {
-        const Int& low = lowBoundaries[i];
-        const Int& high = highBoundaries[i];
         width[i] = NTL::conv<long>(subregionSize[i]);
-        Int start = low;
-        while (start <= high) {
-            Int next;
-            if (!nextApproxFactoringCoefficient(start, high, root, next)) break;
-            admissible[i].push_back(next);
-            start = next + 1;
-        }
-        if (admissible[i].size() < static_cast<std::size_t>(width[i]))
-        {
-            // No box of the requested size fits in this range.
-            return;
-        }
+        admissibleCount[i] = countApproxFactoringValues(lowBoundaries[i], highBoundaries[i], root);
+        if (admissibleCount[i] < subregionSize[i]) return; // No complete box fits in this dimension.
     }
     // Process up to numRandomRegions randomly selected regions, stopping
     // early if the configured generator limit is reached.
     for (long region = 0;  region < numRandomRegions && !this->reachedNumGeneratorLimit();  ++region)
     {
         if (timeExpired()) return;
-        countAk = static_cast<long>(admissible[k].size());
-        firstAk = randInt(0L, countAk - width[k]);
+        firstAk = randInt(Int(0), admissibleCount[k] - subregionSize[k]);
         for (long akOffset = 0; akOffset < width[k]; ++akOffset) {
             if (this->reachedNumGeneratorLimit() || timeExpired()) return;
-            aa[k] = admissible[k][firstAk + akOffset];
+            aa[k] = approxFactoringValueAt(lowBoundaries[k], highBoundaries[k], root, admissibleCount[k], firstAk + Int(akOffset));
             // Only condition 1 can be tested once for this a_k.
             if (this->maxPeriod && !maxPeriodCondition1(aa)) {
                 ++this->numCandidatesExamined;
@@ -968,16 +963,14 @@ void SearchMRG<Int, Real>::searchLoopRandomApproxFactoringByAkBox(
             // Draw a fresh admissible box for the remaining
             // coefficients. a_1 changes fastest during enumeration.
             for (int i = 1; i < k; ++i) {
-                const long count = admissible[i].size();
-                first[i] = randInt(0L, count - width[i]);
+                first[i] = randInt(Int(0), admissibleCount[i] - subregionSize[i]);
                 offset[i] = 0;
             }
             bool boxDone = false;
             while (!boxDone) {
-                if (this->reachedNumGeneratorLimit() ||  timeExpired())
-                    return;
+                if (this->reachedNumGeneratorLimit() ||  timeExpired()) return;
                 for (int i = 1; i < k; ++i) {
-                    aa[i] = admissible[i][first[i] + offset[i]];
+                    aa[i] = approxFactoringValueAt(lowBoundaries[i], highBoundaries[i], root, admissibleCount[i], first[i] + Int(offset[i]));
                 }
                 ++this->numCandidatesExamined;
                 // Conditions 2 and 3 depend on the completed vector.
@@ -997,8 +990,7 @@ void SearchMRG<Int, Real>::searchLoopRandomApproxFactoringByAkBox(
                         ++offset[i];
                         if (offset[i] < width[i])  break;
                         offset[i] = 0;
-                        if (i == k - 1)
-                            boxDone = true;
+                        if (i == k - 1) boxDone = true;
                     }
                 }
             }
@@ -1239,16 +1231,117 @@ void SearchMRG<Int, Real>::nextIndexApproxFactoring(Int& index, const IntVec& bo
  * Test if a_k is a primitive element.
  */
 template<typename Int, typename Real>
-bool SearchMRG<Int, Real>::maxPeriodCondiiton1(const IntVec& coefficients)
+bool SearchMRG<Int, Real>::maxPeriodCondition1(const IntVec& coefficients)
 {
     typename FlexModInt<Int>::PolX f;
     getCharacPoly<Int>(f, coefficients);
     Int constantTerm;
     NTL::conv(constantTerm, rep(ConstTerm(f)));
-    return isPrimitiveElement<Int>(-constantTerm, getMRGComponent().getFactmm1(), this->modulus);
+    const Int element = (this->order % 2 == 0) ? constantTerm : -constantTerm;
+    return isPrimitiveElement<Int>(element, getMRGComponent().getFactmm1(), this->modulus);
 }
 //===========================================================================
 
+/**
+ * Count coefficients in ['low', 'high'] satisfying the approximate
+ * factoring condition. 'root' must equal floor(sqrt(modulus)). 
+ * The range must be entirely positive, entirely negative, or exactly [0, 0]. E
+ * 
+ * This version is for prime moduli only. Composite moduli would require
+ * a more time-consuming algorithm.
+ */
+template<typename Int, typename Real>
+Int SearchMRG<Int, Real>::countApproxFactoringValues(const Int& low, const Int& high, const Int& root) const
+{
+    Int qMin, qMax, largeLow;
+    if (low == Int(0) && high == Int(0)) return Int(1);
+    const bool negative = high < Int(0);
+    const Int minAbs = negative ? -high : low;
+    Int maxAbs = negative ? -low : high;
+    if (negative) {
+    // A lower bound below -m includes magnitudes greater than m.
+    if (low < -this->modulus) maxAbs = this->modulus;
+    } else {
+        if (high > this->modulus) maxAbs = this->modulus;
+    }
+    // Small magnitudes all pass.
+    const Int smallHigh = maxAbs < root ? maxAbs : root;
+    const Int smallCount = minAbs <= smallHigh ? smallHigh - minAbs + 1 : Int(0);
+    // For magnitudes greater than root, include floor(m / q)
+    // when it falls within [minAbs, maxAbs].
+    largeLow = minAbs > root ? minAbs : root + 1;
+    Int largeCount(0);
+    if (largeLow <= maxAbs) {
+        qMin = this->modulus / (maxAbs + 1) + 1;
+        qMax = this->modulus / largeLow;
+        if (qMin <= qMax) largeCount = qMax - qMin + 1;
+    }
+    // For prime m, m - 1 is the additional large passing value.
+    const Int extraCount =  (this->modulus - 1 > root && minAbs <= this->modulus - 1 && this->modulus- 1 <= maxAbs) ? Int(1) : Int(0);
+
+    return smallCount + largeCount + extraCount;
+}
+//===========================================================================
+
+/**
+ * Return the admissible approximat factoring coefficient at the zero-based 
+ * position in ['low', 'high'], ordered from the smallest to the largest coefficient.
+ *
+ * 'low' and 'high' are the inclusive coefficient bounds. 'root' must equal
+ * floor(sqrt(modulus)). 'count' is the number of admissible coefficients
+ * returned by countApproxFactoringValues(low, high, root), and 'position'
+ * must satisfy 0 <= position < count.
+ *
+ * The range must be entirely positive, entirely negative, or exactly [0, 0].
+ */
+template<typename Int, typename Real>
+Int SearchMRG<Int, Real>::approxFactoringValueAt(const Int& low, const Int& high, const Int& root, const Int& count, const Int& position) const
+{
+    if (low == Int(0) && high == Int(0)) return Int(0);
+    Int magnitude, largeLow, q, qMax, largeCount, extraCount;
+    const bool negative = high < Int(0);
+    const Int minAbs = negative ? -high : low;
+    Int maxAbs = negative ? -low : high;
+    if (negative) {
+    // A lower bound below -m includes magnitudes greater than m.
+    if (low < -this->modulus) maxAbs = this->modulus;
+    } else {
+        if (high > this->modulus) maxAbs = this->modulus;
+    }
+
+    // Magnitudes are generated in increasing order. Reverse the
+    // position for negative coefficients so their numerical order
+    // is also increasing.
+    Int p = negative ? count - 1 - position : position;
+
+    const Int smallHigh = maxAbs < root ? maxAbs : root;
+    const Int smallCount = minAbs <= smallHigh ? smallHigh - minAbs + 1 : Int(0);
+    if (p < smallCount) {
+        magnitude = minAbs + p;
+    } else {
+        p -= smallCount;
+        extraCount =  (this->modulus - 1 > root &&  minAbs <= this->modulus - 1 && this->modulus - 1 <= maxAbs) ? Int(1) : Int(0);
+        const bool includesM = (maxAbs == this->modulus);
+        // The quotient values include m when q = 1. Set that final
+        // quotient value aside so m - 1 can be returned before m.
+        largeCount = count - smallCount - extraCount;
+        const Int largeBeforeM = largeCount - (includesM ? Int(1) : Int(0));
+        if (p < largeBeforeM) {
+             largeLow = minAbs > root ? minAbs : root + 1;
+              qMax = this->modulus / largeLow;
+              q = qMax - p;
+               magnitude = this->modulus / q;
+        } else if (p < largeBeforeM + extraCount) {
+            magnitude = this->modulus - 1;
+        } else {
+            magnitude = this->modulus;
+        }
+    }
+
+    return negative ? -magnitude : magnitude;
+}
+
+//===========================================================================
 
 } // namespace LatMRG
 

@@ -268,7 +268,8 @@ static bool isPrimitive(typename FlexModInt<Int>::PolX &f, const Int &m, const I
       const IntFactorization<Int> &fr) {
    Int ak;
    NTL::conv(ak, rep(ConstTerm(f)));
-   if (!isPrimitiveElement(-ak, fm, m)) return false;
+   const Int element = (deg(f) % 2 == 0) ? ak : -ak;
+   if (!isPrimitiveElement(element, fm, m)) return false;
    return isPrimitive23(f, m, fr);
 }
 
