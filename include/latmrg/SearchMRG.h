@@ -294,9 +294,11 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
 template<typename Int, typename Real>
 MRGLattice<Int, Real>& SearchMRG<Int, Real>::getWorkingLattice()
 {
-    WorkingLattice = std::make_unique<MRGLattice<Int, Real>>(
-        this->modulus, aa, this->maxdim
-    );
+    if (!WorkingLattice) {
+        WorkingLattice = std::make_unique<MRGLattice<Int, Real>>(this->modulus, aa, this->maxdim);
+    } else {
+        WorkingLattice->setaa(aa);
+    }
     return *WorkingLattice;
 }
 
@@ -443,7 +445,7 @@ void SearchMRG<Int, Real>::searchLoopExhaustive(IntLattice<Int, Real>* proj, int
 //===========================================================================
 
 /**
- * saarchLoopRandomByAk() performs a random search organized around the
+ * searchLoopRandomByAk() performs a random search organized around the
  * last multiplier a_k. It first draws values of a_k at random and
  * retains only those that satisfy the maximal-period requirement, if this
  * requirement is chosen by the user.

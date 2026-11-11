@@ -45,10 +45,9 @@ struct SearchCombinedMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     // Coefficients of a combined candidate, for the future search loop.
     IntVec aa;
 
+    // These functions the the modulus, the order and the coefficients of a specific component
     Int getComponentModulus(int i) const override  {return components.at(i).modulus; }
-
     long getComponentOrder(int i) const override {return components.at(i).order;}
-
     const IntVec& getCurrentCoefficients() const override {return aa;}
 
     // Required by SearchBase; combined searching is not implemented yet.
@@ -101,6 +100,11 @@ template<typename Int, typename Real> void SearchCombinedMRG<Int, Real>::addComp
 
     if (!components.empty() && components.front().order != componentOrder)
         throw std::invalid_argument("All components must have the same order");
+
+    for (const ComponentMRG& component : components) {
+        if (NTL::GCD(componentModulus, component.modulus) != Int(1))
+            throw std::invalid_argument("Component moduli must be pairwise coprime");
+    }
 
     components.push_back({componentModulus, componentOrder, candidates});
     this->numComp = static_cast<long>(components.size());
@@ -178,8 +182,9 @@ template<typename Int, typename Real> void SearchCombinedMRG<Int, Real>::compute
         const std::list<Candidate<Int>>& list = component.bestCandidates.getList();
         const Int& indexValue = selectedCandidates[c];
         auto it = list.begin();
-        std::advance(it, NTL::conv<long>(indexValue));
-        const auto& candidate = *it;
+        for (Int n(0); n < indexValue && it != list.end(); ++n) ++it;
+        if (it == list.end()) throw std::out_of_range("Candidate index is out of range");
+        const Candidate<Int>& candidate = *it;
         otherModuli = this->modulus / component.modulus;
         inverse = NTL::InvMod(otherModuli % component.modulus, component.modulus);
         weight = otherModuli * inverse;
