@@ -204,7 +204,7 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     {
         mrg.reset();
         WorkingLattice.reset();
-        aa.SetLength(this->order + 1);
+        this->aa.SetLength(this->order + 1);
         if (lowBoundaries.length() == this->order + 1 && highBoundaries.length() == this->order + 1) prepareEqualityGroups();
         return SearchBase<Int, Real, MRGLattice<Int, Real>> ::template performSearch<SearchType>(searchLoop);
     }
@@ -216,8 +216,8 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     */
     bool satisfiesApproxFactoringCondition() const {
         for (long i = 1; i <= this->order; ++i) {
-            if (aa[i] == Int(0)) continue;
-            const Int value = aa[i] < Int(0) ? -aa[i] : aa[i];
+            if (this->aa[i] == Int(0)) continue;
+            const Int value = this->aa[i] < Int(0) ? -this->aa[i] : this->aa[i];
             // Equivalent to (modulus % value) < modulus / value,
             // without integer-division rounding in the comparison.
             if (value * (this->modulus % value) >= this->modulus)
@@ -237,12 +237,7 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     /**
      * Returns the vector of multipliers
      */
-    const IntVec& getCurrentCoefficients() const override {return aa;}
-
-    /**
-    * Vector of multipliers
-    */
-    NTL::Vec<NTL::ZZ> aa;
+    const IntVec& getCurrentCoefficients() const override {return this->aa;}
 
     // Tests if a_k is a primitive element
     bool maxPeriodCondition1(const IntVec& coefficients);
@@ -295,9 +290,10 @@ template<typename Int, typename Real>
 MRGLattice<Int, Real>& SearchMRG<Int, Real>::getWorkingLattice()
 {
     if (!WorkingLattice) {
-        WorkingLattice = std::make_unique<MRGLattice<Int, Real>>(this->modulus, aa, this->maxdim);
+        WorkingLattice = std::make_unique<MRGLattice<Int, Real>>(this->modulus, this->aa, this->maxdim);
     } else {
-        WorkingLattice->setaa(aa);
+        WorkingLattice->setaa(this->aa);
+        WorkingLattice->setModulus(this->modulus);
     }
     return *WorkingLattice;
 }
@@ -356,16 +352,16 @@ void SearchMRG<Int, Real>::searchLoopBox(const IntVec& boxLow, const IntVec& box
             sideLength = boxHigh[i] - boxLow[i] + 1;
             offset = tmp % sideLength;
             tmp /= sideLength;
-            aa[i] = boxLow[i] + offset;
+            this->aa[i] = boxLow[i] + offset;
             if (i == this->order) offsetK = offset;
         }
         ++index;
         if (requireApproxFactoringCondition) { nextIndexApproxFactoring(index, boxLow, boxHigh, boxTotal, root, sideLengths, firstAllowed); }
         ++this->numCandidatesExamined;
         if (this->maxPeriod) {
-            if (!hasTestedAk || aa[this->order] != lastTestedAk) {
-                lastAkPassedCondition1 = maxPeriodCondition1(aa);
-                lastTestedAk = aa[this->order];
+            if (!hasTestedAk || this->aa[this->order] != lastTestedAk) {
+                lastAkPassedCondition1 = maxPeriodCondition1(this->aa);
+                lastTestedAk = this->aa[this->order];
                 hasTestedAk = true;
             }
             if (!lastAkPassedCondition1) {
@@ -378,13 +374,13 @@ void SearchMRG<Int, Real>::searchLoopBox(const IntVec& boxLow, const IntVec& box
                 if (this->progress) old = this->printProgress(old);
                 continue;
             }
-            if (!getMRGComponent().maxPeriod23(aa)) {
+            if (!getMRGComponent().maxPeriod23(this->aa)) {
                 if (this->progress) old = this->printProgress(old);
                 continue;
             }
             ++this->numMaxPeriodCandidates;
         }
-        this->testCandidate(aa, proj);
+        this->testCandidate(proj);
         if (this->progress) old = this->printProgress(old);
         if (!this->calculateFOM && this->bestCandidates.full()) break;
     }
@@ -405,7 +401,6 @@ void SearchMRG<Int, Real>::searchLoopRandom(IntLattice<Int, Real>* proj, int& ol
     unsigned iterationsUntilTimeCheck = 0;
     while (!this->reachedNumGeneratorLimit())
     {
-        
         // Check time only upon every 1.000 call of the loop. This reduces runtim a lot
         if (iterationsUntilTimeCheck == 0) {
             if (this->timer.timeOver(this->timeLimit))
@@ -417,10 +412,10 @@ void SearchMRG<Int, Real>::searchLoopRandom(IntLattice<Int, Real>* proj, int& ol
         ++this->numCandidatesExamined;
         if (this->progress) old = this->printProgress(old);
         if (this->maxPeriod) {
-            if (!getMRGComponent().maxPeriod(aa)) continue;
+            if (!getMRGComponent().maxPeriod(this->aa)) continue;
             ++this->numMaxPeriodCandidates;
         }
-        this->testCandidate(aa, proj);
+        this->testCandidate(proj);
         if (!this->calculateFOM && this->bestCandidates.full()) break;
     }
 }
@@ -486,9 +481,9 @@ void SearchMRG<Int, Real>::searchLoopRandomByAk(IntLattice<Int, Real>* proj, int
                 }
                 --iterationsUntilTimeCheck;
                 acceptedAk = randInt(lowBoundaries[this->order], highBoundaries[this->order]);
-                aa[this->order] = acceptedAk;
+                this->aa[this->order] = acceptedAk;
                 ++akTrials;
-                if (this->maxPeriod && !maxPeriodCondition1(aa)) {
+                if (this->maxPeriod && !maxPeriodCondition1(this->aa)) {
                     ++this->numCandidatesExamined;
                     if (this->progress) old = this->printProgress(old);
                     continue;
@@ -499,17 +494,17 @@ void SearchMRG<Int, Real>::searchLoopRandomByAk(IntLattice<Int, Real>* proj, int
             if (!hasAcceptedAk) break;
         }
         // Draw a fresh vector for each point, keeping the accepted a_k.
-        aa[this->order] = acceptedAk;
+        this->aa[this->order] = acceptedAk;
         drawRandomCoefficients(this->order);
         ++pointsForCurrentAk;
         ++this->numCandidatesExamined;
         if (this->progress) old = this->printProgress(old);
         // Conditions 2 and 3 must be checked for every completed vector.
         if (this->maxPeriod) {
-            if (!getMRGComponent().maxPeriod23(aa)) continue;
+            if (!getMRGComponent().maxPeriod23(this->aa)) continue;
             ++this->numMaxPeriodCandidates;
         }
-        this->testCandidate(aa, proj);
+        this->testCandidate(proj);
         if (!this->calculateFOM && this->bestCandidates.full()) break;
     }
 }
@@ -562,12 +557,12 @@ void SearchMRG<Int, Real>::searchLoopRandomByAkBox(IntLattice<Int, Real>* proj, 
             for (int i = 1; i < this->order; ++i) {
                 boxLow[i] = randInt(lowBoundaries[i], highBoundaries[i] - subregionSize[i] + 1);
                 boxHigh[i] = boxLow[i] + subregionSize[i] - 1;
-                aa[i] = boxLow[i];
+                this->aa[i] = boxLow[i];
             }
             ak = randInt(lowBoundaries[this->order], highBoundaries[this->order]);
-            aa[this->order] = ak;
+            this->aa[this->order] = ak;
             ++akTrials;
-            if (this->maxPeriod && !maxPeriodCondition1(aa)) {
+            if (this->maxPeriod && !maxPeriodCondition1(this->aa)) {
                 ++this->numCandidatesExamined;
                 if (this->progress) old = this->printProgress(old);
                 continue;
@@ -666,19 +661,19 @@ void SearchMRG<Int, Real>::searchLoopRandomApproxFactoring(IntLattice<Int, Real>
                 draw = randInt(Int(0), 4 * maxJ - 1);
                 j = draw / 4 + 1;
                 bits = NTL::conv<long>(draw % 4);
-                aa[i] = (bits & 1) ? this->modulus / j : j;
-            } while (useAbsBounds && (aa[i] < approxFacMinAbs[i] || aa[i] > approxFacMaxAbs[i]));
-            if (bits & 2) aa[i] = -aa[i];
+                this->aa[i] = (bits & 1) ? this->modulus / j : j;
+            } while (useAbsBounds && (this->aa[i] < approxFacMinAbs[i] || this->aa[i] > approxFacMaxAbs[i]));
+            if (bits & 2) this->aa[i] = -this->aa[i];
         }
         ++this->numCandidatesExamined;
         if (this->maxPeriod) {
-            if (!getMRGComponent().maxPeriod(aa)) {
+            if (!getMRGComponent().maxPeriod(this->aa)) {
                 if (this->progress) old = this->printProgress(old);
                 continue;
             }
             ++this->numMaxPeriodCandidates;
         }
-        this->testCandidate(aa, proj);
+        this->testCandidate(proj);
         if (this->progress) old = this->printProgress(old);
         if (!this->calculateFOM && this->bestCandidates.full()) break;
     }
@@ -744,9 +739,9 @@ void SearchMRG<Int, Real>::searchLoopRandomApproxFactoringByAk(IntLattice<Int, R
                     acceptedAk = (bits & 1) ? this->modulus / j : j;
                 } while (useAbsBounds &&(acceptedAk < approxFacMinAbs[this->order] ||  acceptedAk > approxFacMaxAbs[this->order]));
                 if (bits & 2) acceptedAk = -acceptedAk;
-                aa[this->order] = acceptedAk;
+                this->aa[this->order] = acceptedAk;
                 ++akTrials;
-                if (this->maxPeriod && !maxPeriodCondition1(aa))
+                if (this->maxPeriod && !maxPeriodCondition1(this->aa))
                 {
                     ++this->numCandidatesExamined;
                     if (this->progress) old = this->printProgress(old);
@@ -769,21 +764,21 @@ void SearchMRG<Int, Real>::searchLoopRandomApproxFactoringByAk(IntLattice<Int, R
                 draw = randInt(Int(0), 4 * maxJ - 1);
                 j = draw / 4 + 1;
                 bits = NTL::conv<long>(draw % 4);
-                aa[i] = (bits & 1) ? this->modulus / j : j;
-                } while (useAbsBounds && (aa[i] < approxFacMinAbs[i] || aa[i] > approxFacMaxAbs[i]));
-            if (bits & 2) aa[i] = -aa[i];
+                this->aa[i] = (bits & 1) ? this->modulus / j : j;
+                } while (useAbsBounds && (this->aa[i] < approxFacMinAbs[i] || this->aa[i] > approxFacMaxAbs[i]));
+            if (bits & 2) this->aa[i] = -this->aa[i];
         }
-        aa[this->order] = acceptedAk;
+        this->aa[this->order] = acceptedAk;
         ++pointsForCurrentAk;
         ++this->numCandidatesExamined;
         if (this->maxPeriod) {
-            if (!getMRGComponent().maxPeriod23(aa)) {
+            if (!getMRGComponent().maxPeriod23(this->aa)) {
                 if (this->progress) old = this->printProgress(old);
                 continue;
             }
             ++this->numMaxPeriodCandidates;
         }
-        this->testCandidate(aa, proj);
+        this->testCandidate(proj);
         if (this->progress) old = this->printProgress(old);
         if (!this->calculateFOM && this->bestCandidates.full()) break;
     }
@@ -812,16 +807,16 @@ void SearchMRG<Int, Real>::searchLoopRandomPowerOfTwo(IntLattice<Int, Real>* pro
         }
         --iterationsUntilTimeCheck;
         for (int i = 1; i <= this->order; ++i)
-            aa[i] = drawPowerOfTwoCoefficient(i);
+            this->aa[i] = drawPowerOfTwoCoefficient(i);
         ++this->numCandidatesExamined;
         if (this->maxPeriod) {
-            if (!getMRGComponent().maxPeriod(aa)) {
+            if (!getMRGComponent().maxPeriod(this->aa)) {
                 if (this->progress) old = this->printProgress(old);
                 continue;
             }
             ++this->numMaxPeriodCandidates;
         }
-        this->testCandidate(aa, proj);
+        this->testCandidate(proj);
         if (this->progress) old = this->printProgress(old);
         if (!this->calculateFOM && this->bestCandidates.full()) break;
     }
@@ -864,9 +859,9 @@ void SearchMRG<Int, Real>::searchLoopRandomPowerOfTwoByAk(IntLattice<Int, Real>*
                 }
                 --iterationsUntilTimeCheck;
                 acceptedAk = drawPowerOfTwoCoefficient(this->order);
-                aa[this->order] = acceptedAk;
+                this->aa[this->order] = acceptedAk;
                 ++akTrials;
-                if (this->maxPeriod && !maxPeriodCondition1(aa))
+                if (this->maxPeriod && !maxPeriodCondition1(this->aa))
                 {
                     ++this->numCandidatesExamined;
                     if (this->progress) old = this->printProgress(old);
@@ -879,18 +874,18 @@ void SearchMRG<Int, Real>::searchLoopRandomPowerOfTwoByAk(IntLattice<Int, Real>*
         }
         // Draw fresh coefficients while keeping the accepted a_k fixed.
         for (int i = 1; i < this->order; ++i)
-            aa[i] = drawPowerOfTwoCoefficient(i);
-        aa[this->order] = acceptedAk;
+            this->aa[i] = drawPowerOfTwoCoefficient(i);
+        this->aa[this->order] = acceptedAk;
         ++pointsForCurrentAk;
         ++this->numCandidatesExamined;
         if (this->maxPeriod) {
-            if (!getMRGComponent().maxPeriod23(aa)) {
+            if (!getMRGComponent().maxPeriod23(this->aa)) {
                 if (this->progress) old = this->printProgress(old);
                 continue;
             }
             ++this->numMaxPeriodCandidates;
         }
-        this->testCandidate(aa, proj);
+        this->testCandidate(proj);
         if (this->progress) old = this->printProgress(old);
         if (!this->calculateFOM && this->bestCandidates.full()) break;
     }
@@ -955,9 +950,9 @@ void SearchMRG<Int, Real>::searchLoopRandomApproxFactoringByAkBox(IntLattice<Int
         firstAk = randInt(Int(0), admissibleCount[k] - subregionSize[k]);
         for (long akOffset = 0; akOffset < width[k]; ++akOffset) {
             if (this->reachedNumGeneratorLimit() || timeExpired()) return;
-            aa[k] = approxFactoringValueAt(lowBoundaries[k], highBoundaries[k], root, admissibleCount[k], firstAk + Int(akOffset));
+            this->aa[k] = approxFactoringValueAt(lowBoundaries[k], highBoundaries[k], root, admissibleCount[k], firstAk + Int(akOffset));
             // Only condition 1 can be tested once for this a_k.
-            if (this->maxPeriod && !maxPeriodCondition1(aa)) {
+            if (this->maxPeriod && !maxPeriodCondition1(this->aa)) {
                 ++this->numCandidatesExamined;
                 if (this->progress) old = this->printProgress(old);
                 continue;
@@ -972,14 +967,14 @@ void SearchMRG<Int, Real>::searchLoopRandomApproxFactoringByAkBox(IntLattice<Int
             while (!boxDone) {
                 if (this->reachedNumGeneratorLimit() ||  timeExpired()) return;
                 for (int i = 1; i < k; ++i) {
-                    aa[i] = approxFactoringValueAt(lowBoundaries[i], highBoundaries[i], root, admissibleCount[i], first[i] + Int(offset[i]));
+                    this->aa[i] = approxFactoringValueAt(lowBoundaries[i], highBoundaries[i], root, admissibleCount[i], first[i] + Int(offset[i]));
                 }
                 ++this->numCandidatesExamined;
                 // Conditions 2 and 3 depend on the completed vector.
-                accepted =  !this->maxPeriod ||  getMRGComponent().maxPeriod23(aa);
+                accepted =  !this->maxPeriod ||  getMRGComponent().maxPeriod23(this->aa);
                 if (accepted) {
                     if (this->maxPeriod) ++this->numMaxPeriodCandidates;
-                    this->testCandidate(aa, proj);
+                    this->testCandidate(proj);
                 }
                 if (this->progress) old = this->printProgress(old);
                 if (!this->calculateFOM && this->bestCandidates.full()) return;
@@ -999,6 +994,7 @@ void SearchMRG<Int, Real>::searchLoopRandomApproxFactoringByAkBox(IntLattice<Int
         }
     }
 }
+//===========================================================================
 
 /**
 * This function checks whether the generated lattice satisfies the
@@ -1069,12 +1065,12 @@ template<typename Int, typename Real> void SearchMRG<Int, Real>::drawRandomCoeff
     int fixedGroup = 0; // 0 means no coefficient is fixed.
     if (fixedIndex != 0) {fixedGroup = equalityGroups.empty() ? fixedIndex : equalityGroups[fixedIndex - 1];}
     for (int group = 1; group <= numEqualityGroups; ++group) {
-        if (group == fixedGroup) groupValue[group] = aa[fixedIndex];
+        if (group == fixedGroup) groupValue[group] = this->aa[fixedIndex];
         else groupValue[group] = randInt(groupLow[group], groupHigh[group]);
     }
     for (int i = 1; i <= this->order; ++i) {
         const int group = equalityGroups.empty() ? i : equalityGroups[i - 1];
-        aa[i] = groupValue[group];
+        this->aa[i] = groupValue[group];
     }
 }
 //===========================================================================

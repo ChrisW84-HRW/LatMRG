@@ -101,6 +101,13 @@ struct SearchBase
      * Pointer to a figure of merit object
      */
     FigureOfMeritM<Int, Real>* fom = nullptr;
+
+    
+    /**
+    * Vector of multipliers
+    */
+    NTL::Vec<NTL::ZZ> aa;
+
     
 
     // Get and set functions    
@@ -172,7 +179,7 @@ struct SearchBase
   * computes its merit, and retains it if it ranks among the best candidates.
   * Otherwise, retains the coefficients without constructing a lattice.
   */ 
-   void testCandidate(const IntVec& coefficients, IntLattice<Int, Real>* proj);
+   void testCandidate(IntLattice<Int, Real>* proj);
    
    /**
    * This function checks whether the generated lattice satisfies the
@@ -347,7 +354,7 @@ void SearchBase<Int, Real, Lat>::writeGenFile() const
 
 /**
  * If a figure of merit is requested, the function obtains the working lattice, computes
- * the merit using proj, and retains the candidate if it belongs among the
+ * the merit using 'proj', and retains the candidate if it belongs among the
  * best found so far. Otherwise, stores the candidate with merit zero while
  * space remains in the list.
  *
@@ -356,9 +363,9 @@ void SearchBase<Int, Real, Lat>::writeGenFile() const
  * The coefficients must match those of the current working lattice.
  */
 template<typename Int, typename Real, typename Lat> 
-void SearchBase<Int, Real, Lat>::testCandidate(const IntVec& coefficients, IntLattice<Int, Real>* proj)
+void SearchBase<Int, Real, Lat>::testCandidate(IntLattice<Int, Real>* proj)
 {
-    Candidate<Int> candidate{modulus, coefficients, 0.0};
+    Candidate<Int> candidate{modulus, aa, 0.0};
     if (!calculateFOM) {
         bestCandidates.addWithoutMerit(candidate);
         return;

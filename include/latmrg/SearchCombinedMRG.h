@@ -36,25 +36,18 @@ struct SearchCombinedMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     {
         Int modulus;
         long order;
-        CandidateList<Int> bestCandidates;
+        CandidateList<Int> Candidates;
     };
-
-    // Input components; each has its own, separate candidate list.
-    std::vector<ComponentMRG> components;
-
-    // Coefficients of a combined candidate, for the future search loop.
-    IntVec aa;
 
     // These functions the the modulus, the order and the coefficients of a specific component
     Int getComponentModulus(int i) const override  {return components.at(i).modulus; }
     long getComponentOrder(int i) const override {return components.at(i).order;}
-    const IntVec& getCurrentCoefficients() const override {return aa;}
+    const IntVec& getCurrentCoefficients() const override {return this->aa;}
+
+    void searchLoopDeterministic(IntLattice<Int, Real>* proj, int& old);
 
     // Required by SearchBase; combined searching is not implemented yet.
-    bool checkMaxPeriod(MRGLattice<Int, Real>&) override
-    {
-        throw std::logic_error("Combined MRG search is not implemented");
-    }
+    bool checkMaxPeriod(MRGLattice<Int, Real>&) override;
 
     /**
      * These functions add a candidate list per components, delete the
@@ -74,15 +67,46 @@ struct SearchCombinedMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
      * Computes the combined coefficients for one choice of component candidates.
     *
     * selectedCandidates[c] is the index of the candidate chosen
-    * from components[c].bestCandidates. The result is stored in aa.
+    * from components[c].Candidates. The result is stored in aa.
     */
     void computeCombination(const IntVec& selectedCandidates);
+    
+    /*
+    * This lattice is re-used for storing the current lattice if needed.
+    * The function gets the lattice.
+    */
+    std::unique_ptr<MRGLattice<Int, Real>> WorkingLattice;
+
+    // Input components; each has its own, separate candidate list.
+    std::vector<ComponentMRG> components;
+
+    
+    /**
+    * Object for creating an MRG lattice
+    */
+    std::unique_ptr<MRGComponent<Int>> mrg;
+
+    /**
+     * Helper function 
+    */
+    MRGComponent<Int>& getMRGComponent() {
+        if (!mrg) {
+            mrg.reset(new MRGComponent<Int>(this->modulus, this->order));
+        }
+        return *mrg;
+    }
 
 private:
-    // Required by SearchBase; combined searching is not implemented yet.
+    // Returns the current combined lattice
     MRGLattice<Int, Real>& getWorkingLattice() override
     {
-        throw std::logic_error("Combined MRG search is not implemented");
+        if (!WorkingLattice) {
+            WorkingLattice = std::make_unique<MRGLattice<Int, Real>>(this->modulus, this->aa, this->maxdim);
+        } else {
+            WorkingLattice->setaa(this->aa);
+            WorkingLattice->setModulus(this->modulus);
+        }
+        return *WorkingLattice;
     }
 };
 
@@ -169,8 +193,8 @@ template<typename Int, typename Real> void SearchCombinedMRG<Int, Real>::compute
     }
     this->modulus = product;
 
-    aa.SetLength(this->order + 1);
-    for (long j = 0; j <= this->order; ++j) aa[j] = 0;
+    this->aa.SetLength(this->order + 1);
+    for (long j = 0; j <= this->order; ++j) this->aa[j] = 0;
 
     // Adapted from computeCombination() from MRGCombined: 
     // For each component, get the candidate indexed by selectedCandidates[c].
@@ -179,7 +203,7 @@ template<typename Int, typename Real> void SearchCombinedMRG<Int, Real>::compute
     for (std::size_t c = 0; c < components.size(); ++c) {
         // Use references here
         const ComponentMRG& component = components[c];
-        const std::list<Candidate<Int>>& list = component.bestCandidates.getList();
+        const std::list<Candidate<Int>>& list = component.Candidates.getList();
         const Int& indexValue = selectedCandidates[c];
         auto it = list.begin();
         for (Int n(0); n < indexValue && it != list.end(); ++n) ++it;
@@ -189,11 +213,67 @@ template<typename Int, typename Real> void SearchCombinedMRG<Int, Real>::compute
         inverse = NTL::InvMod(otherModuli % component.modulus, component.modulus);
         weight = otherModuli * inverse;
         for (long j = 1; j <= this->order; ++j) {
-            aa[j] = (aa[j] + candidate.getAa()[j] * weight) % this->modulus;
-            if (aa[j] < 0) aa[j] += this->modulus;
+            this->aa[j] = (this->aa[j] + candidate.getAa()[j] * weight) % this->modulus;
+            if (this->aa[j] < 0) this->aa[j] += this->modulus;
         }
     }
 }
+
+//============================================================================
+
+/**
+* This function checks whether the generated lattice satisfies the
+* maximal-period requirement for an MRG.
+* Probably this function will not be used since it requires to pass a lattice object which has not been creater.
+* Delete it if it is not necessary.
+*/
+template<typename Int, typename Real> bool SearchCombinedMRG<Int, Real>::checkMaxPeriod(MRGLattice<Int, Real>& lat)
+{
+  return getMRGComponent().maxPeriod(lat.getaa());
+}
+
+//============================================================================
+
+template<typename Int, typename Real>
+void SearchCombinedMRG<Int, Real>::searchLoopDeterministic(IntLattice<Int, Real>* proj, int& old)
+{
+    // positions is an odometer: one position per component list.
+    std::vector<std::size_t> positions(components.size(), 0);
+    IntVec selectedCandidates;
+    selectedCandidates.SetLength(static_cast<long>(components.size()));
+    unsigned iterationsUntilTimeCheck = 0;
+
+    while (!this->reachedNumGeneratorLimit()) {
+        // Check before the first combination, then once every 1,000.
+        if (iterationsUntilTimeCheck == 0) {
+            if (this->timer.timeOver(this->timeLimit))
+                break;
+            iterationsUntilTimeCheck = 1000;
+        }
+        --iterationsUntilTimeCheck;
+        for (std::size_t c = 0; c < components.size(); ++c)
+            selectedCandidates[static_cast<long>(c)] = NTL::conv<Int>(static_cast<long>(positions[c]));
+        computeCombination(selectedCandidates);
+        ++this->numCandidatesExamined;
+        // The input lists are assumed to contain only full-period component
+        // candidates, as supplied by SearchMRG.
+        if (this->maxPeriod) ++this->numMaxPeriodCandidates;
+        if (this->progress) old = this->printProgress(old);
+        this->testCandidate(proj);
+        if (!this->calculateFOM && this->Candidates.full()) break;
+        // Advance the odometer. The last component varies fastest.
+        std::size_t c = components.size();
+        while (c > 0) {
+            --c;
+            if (++positions[c] < components[c].Candidates.getList().size()) break;
+            positions[c] = 0;
+        }
+        // Every combination has been visited.
+        if (c == 0 && positions[0] == 0)  break;
+    }
+}
+
+
 } // namespace LatMRG
 
 #endif // LATMRG_SEARCHCOMBINEDMRG_H
