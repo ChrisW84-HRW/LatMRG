@@ -199,7 +199,7 @@ template<typename Int, typename Real> void SearchCombinedMRG<Int, Real>::calcula
 */
 template<typename Int, typename Real> void SearchCombinedMRG<Int, Real>::computeCombination(const IntVec& selectedCandidates)
 {
-    const Int otherModuli, inverse, weight;
+    Int otherModuli, inverse, weight;
     if (selectedCandidates.length() != static_cast<long>(components.size()))
         throw std::invalid_argument("One index is required per component");
 
@@ -275,31 +275,29 @@ void SearchCombinedMRG<Int, Real>::searchLoopDeterministic(IntLattice<Int, Real>
     IntVec selectedCandidates;
     selectedCandidates.SetLength(static_cast<long>(components.size()));
     unsigned iterationsUntilTimeCheck = 0;
+    // Check the time limit on the first call and then every 1,000 calls.
+    // Return true when the limit has expired. The countdown is shared by
+    // all loops that call this helper.
+    auto timeExpired = [&]() -> bool {
+        if (iterationsUntilTimeCheck == 0) {
+            if (this->timer.timeOver(this->timeLimit))
+                return true;
+            iterationsUntilTimeCheck = this->maxIterationsUntilTimeCheck;
+        }
+        --iterationsUntilTimeCheck;
+        return false;
+    };
 
     while (!this->reachedNumGeneratorLimit()) {
         // Check before the first combination, then once every 1,000.
-        if (iterationsUntilTimeCheck == 0) {
-            if (this->timer.timeOver(this->timeLimit))
-                break;
-            iterationsUntilTimeCheck = 1000;
-        }
-        --iterationsUntilTimeCheck;
+        if (timeExpired()) break;
         for (std::size_t c = 0; c < components.size(); ++c)
             selectedCandidates[static_cast<long>(c)] = NTL::conv<Int>(static_cast<long>(positions[c]));
         computeCombination(selectedCandidates);
         ++this->numCandidatesExamined;
-        // The input lists are assumed to contain only full-period component
-        // candidates, as supplied by SearchMRG.
-        bool accepted = true;
-        if (this->maxPeriod) {
-            accepted = getMRGComponent().maxPeriod(this->aa);
-            if (accepted) ++this->numMaxPeriodCandidates;
-        }
+        if (this->maxPeriod)  ++this->numMaxPeriodCandidates;
         if (this->progress) old = this->printProgress(old);
-        if (accepted) {
-            this->testCandidate(proj);
-            if (!this->calculateFOM && this->bestCandidates.full()) break;
-        }
+        this->testCandidate(proj);
         // Advance the odometer. The last component varies fastest.
         std::size_t c = components.size();
         while (c > 0) {
@@ -331,6 +329,18 @@ void SearchCombinedMRG<Int, Real>::searchLoopRandom(
     IntVec selectedCandidates;
     selectedCandidates.SetLength(components.size());
     unsigned iterationsUntilTimeCheck = 0;
+    // Check the time limit on the first call and then every 1,000 calls.
+    // Return true when the limit has expired. The countdown is shared by
+    // all loops that call this helper.
+    auto timeExpired = [&]() -> bool {
+        if (iterationsUntilTimeCheck == 0) {
+            if (this->timer.timeOver(this->timeLimit))
+                return true;
+            iterationsUntilTimeCheck = this->maxIterationsUntilTimeCheck;
+        }
+        --iterationsUntilTimeCheck;
+        return false;
+    };
 
     std::size_t combinationLimit = 1;
     const auto generatorLimit = static_cast<std::size_t>(this->maxNumGen);
@@ -345,12 +355,7 @@ void SearchCombinedMRG<Int, Real>::searchLoopRandom(
 
     while (!this->reachedNumGeneratorLimit() && this->numCandidatesExamined < combinationLimit) {
         // Check before the first draw, then every 1,000 draws.
-        if (iterationsUntilTimeCheck == 0) {
-            if (this->timer.timeOver(this->timeLimit))
-                break;
-            iterationsUntilTimeCheck = 1000;
-        }
-        --iterationsUntilTimeCheck;
+        if (timeExpired()) break;
         // The loop randomly selects one candidate from the list of each compoent
         // and stores its index in selectedCandidates
         for (std::size_t c = 0; c < components.size(); ++c) {
@@ -361,17 +366,11 @@ void SearchCombinedMRG<Int, Real>::searchLoopRandom(
         ++this->numCandidatesExamined;
         // Assumes the supplied lists contain full-period components and
         // that no additional combined-period check is required.
-        if (this->maxPeriod) {
-            if (!getMRGComponent().maxPeriod(this->aa)) {
-                if (this->progress) old = this->printProgress(old);
-                continue;
-            }
-            ++this->numMaxPeriodCandidates;
-        }
+        ++this->numCandidatesExamined;
+        if (this->maxPeriod) ++this->numMaxPeriodCandidates;
         if (this->progress) old = this->printProgress(old);
-        testCandidate(proj);
-        if (!this->calculateFOM && this->bestCandidates.full()) break;
-    }
+        this->testCandidate(proj);
+        if (!this->calculateFOM && this->bestCandidates.full()) break;}
 }//============================================================================
 
 } // namespace LatMRG

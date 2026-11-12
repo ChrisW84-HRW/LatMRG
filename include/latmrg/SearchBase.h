@@ -88,6 +88,7 @@ struct SearchBase
     int numBestGen = 5; // Number of best generators to be kept, default is 5
     bool calculateFOM = true; // Decides whether we want to calculate the FOM
     int maxNumGen = 1000; // Maximal number of generators to be tested, default = 1000
+    int maxIterationsUntilTimeCheck = 1000; // number of iterations until time is checked, default = 1000
 
     // Technical setting
     double timeLimit = 600.0; // CPU time limit in seconds. default = 600
