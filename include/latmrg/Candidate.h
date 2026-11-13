@@ -31,26 +31,19 @@ public:
     {
         // List is ordered from best to worst.
         auto it = m_candidates.begin();
-
         for (; it != m_candidates.end(); ++it) {
             if (m_best ? candidate.merit > it->merit
                        : candidate.merit < it->merit)
                 break;
         }
-
-        if (m_candidates.size() >= m_max && it == m_candidates.end())
-            return;
-
+        if (m_candidates.size() >= m_max && it == m_candidates.end()) return;
         m_candidates.insert(it, candidate);
-
-        if (m_candidates.size() > m_max)
-            m_candidates.pop_back();
+        if (m_candidates.size() > m_max) m_candidates.pop_back();
     }
 
     void addWithoutMerit(const Candidate<Int>& candidate)
     {
-        if (!full())
-            m_candidates.push_back(candidate);
+        if (!full()) m_candidates.push_back(candidate);
     }
 
     bool full() const

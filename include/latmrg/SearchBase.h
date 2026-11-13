@@ -103,14 +103,6 @@ struct SearchBase
      */
     FigureOfMeritM<Int, Real>* fom = nullptr;
 
-    
-    /**
-    * Vector of multipliers
-    */
-    NTL::Vec<NTL::ZZ> aa;
-
-    
-
     // Get and set functions    
     GenType getGenType() const {return genType;}
     void setGenType(GenType value) {genType = value;}
@@ -152,6 +144,19 @@ struct SearchBase
     void setVerbose(int value) {verbose = value;}
 
     void setFOM(FigureOfMeritM<Int, Real> & value) {fom = &value;}
+
+    // Returns true if the time limit has expired. Checks the timer on the
+    // first call and then once every maxIterationsUntilTimeCheck calls.
+    // The countdown is shared by all loops that call this lambd
+    bool timeExpired(unsigned& iterationsUntilTimeCheck){
+      if (iterationsUntilTimeCheck == 0) {
+        if (timer.timeOver(timeLimit))
+            return true;
+        iterationsUntilTimeCheck = maxIterationsUntilTimeCheck;
+      }
+      --iterationsUntilTimeCheck;
+      return false;
+    }
 
     /**
      * These are different virtual functions to be specified by the subclasses.
@@ -244,6 +249,12 @@ struct SearchBase
     * Program time.
     */
     Chrono timer; 
+
+    /**
+    * Vector of multipliers
+    */
+    NTL::Vec<NTL::ZZ> aa;
+
    
 };
     
@@ -374,9 +385,9 @@ void SearchBase<Int, Real, Lat>::testCandidate(IntLattice<Int, Real>* proj)
     assert(fom != nullptr && proj != nullptr);
     Lat& lattice = getWorkingLattice();
     candidate.merit = fom->computeMerit(lattice, *proj);
-    // For now, this ranking condition supports best-FOM searches.
-    assert(bestFOM);
-    const bool retained = !bestCandidates.full() || candidate.getMerit() > bestCandidates.getCutoffMerit();
+    const bool retained = !bestCandidates.full() || (bestFOM ? 
+      candidate.getMerit() > bestCandidates.getCutoffMerit()
+      : candidate.getMerit() < bestCandidates.getCutoffMerit());
     if (retained) {
         bestCandidates.add(candidate);
         if (verbose > 2) {
@@ -385,7 +396,7 @@ void SearchBase<Int, Real, Lat>::testCandidate(IntLattice<Int, Real>* proj)
                       << "Merit:      " << candidate.getMerit() << "\n\n";
         }
     }
-    if (bestCandidates.full()) fom->setLowBound(bestCandidates.getCutoffMerit());
+    if (bestFOM && bestCandidates.full()) fom->setLowBound(bestCandidates.getCutoffMerit());
 }
 
   //===========================================================================
@@ -408,8 +419,7 @@ int SearchBase<Int, Real, Lat>::performSearch( void (SearchType::*searchLoop)(In
     setModulusIntP<Int>(modulus);
     timer.init();
     int old = 0;
-    if (progress)
-        old = printProgress(-1);
+    if (progress) old = printProgress(-1);
     (static_cast<SearchType*>(this)->*searchLoop)(proj.get(), old);
     if (progress) printProgress(old);
     if (verbose > 1) printResults();
@@ -425,8 +435,7 @@ int SearchBase<Int, Real, Lat>::performSearch( void (SearchType::*searchLoop)(In
  template<typename Int, typename Real, typename Lat> double SearchBase<Int, Real, Lat>::getBestMerit()
   {
     const auto& list = bestCandidates.getList();
-    if (list.empty())
-        return std::numeric_limits<double>::quiet_NaN();
+    if (list.empty()) return std::numeric_limits<double>::quiet_NaN();
     return list.front().merit;
   }
 
