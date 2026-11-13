@@ -202,10 +202,8 @@ template<typename Int, typename Real> void SearchCombinedMRG<Int, Real>::compute
     Int otherModuli, inverse, weight;
     if (selectedCandidates.length() != static_cast<long>(components.size()))
         throw std::invalid_argument("One index is required per component");
-
     if (components.empty() || this->order <= 0)
         throw std::invalid_argument("Combined components and order must be configured");
-
     Int product(1);
     for (long c = 0; c < selectedCandidates.length(); ++c) {
         const CandidateList<Int>& component = components[c];
@@ -217,7 +215,6 @@ template<typename Int, typename Real> void SearchCombinedMRG<Int, Real>::compute
 
     this->aa.SetLength(this->order + 1);
     for (long j = 0; j <= this->order; ++j) this->aa[j] = 0;
-
     // Adapted from computeCombination() from MRGCombined: 
     // For each component, get the candidate indexed by selectedCandidates[c].
     // Compute the weight for that component's modulus, then add the selected
