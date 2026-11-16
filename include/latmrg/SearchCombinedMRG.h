@@ -30,7 +30,7 @@ template<typename Int, typename Real>
 struct SearchCombinedMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
 {
 
-    SearchCombinedMRG() : SearchBase<Int, Real, MRGLattice<Int, Real>>(COMBO) {}
+    SearchCombinedMRG() : SearchBase<Int, Real, MRGLattice<Int, Real>>(COMBO) { this->numComp = 0;}
 
     // We need to make sure the combined modulus is calculated before performSearch is executed.
     template<typename SearchType> int performSearch(void (SearchType::*searchLoop)(IntLattice<Int, Real>*, int&))
@@ -77,7 +77,7 @@ struct SearchCombinedMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     * selectedCandidates[c] is the index of the candidate chosen
     * from the components. The result is stored in aa.
     */
-    void computeCombination(const IntVec& selectedCandidates);
+    void computeCombination(const IntVec& selectedCandidates, std::vector<IntVec>* componentCoefficients = nullptr);
     
     /*
     * This lattice is re-used for storing the current lattice if needed.
@@ -87,7 +87,6 @@ struct SearchCombinedMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
 
     // Input components; each has its own, separate candidate list.
     std::vector<CandidateList<Int>> components;
-
     
     /**
     * Object for creating an MRG lattice
@@ -180,7 +179,7 @@ template<typename Int, typename Real> void SearchCombinedMRG<Int, Real>::removeC
 template<typename Int, typename Real> void SearchCombinedMRG<Int, Real>::calculateModulus()
 {
     Int product(1);
-    for (std::size_t c = 0; c < components.size(); ++c) {
+    for (long c = 0; c < this->numComp; ++c) {
         const CandidateList<Int>& component = components[c];
         if (component.getOrder() != this->order || component.getModulus() <= Int(1))
             throw std::invalid_argument("Invalid component order or modulus");
@@ -197,29 +196,25 @@ template<typename Int, typename Real> void SearchCombinedMRG<Int, Real>::calcula
  * 'selectedCandidates' contains the number of the selected
  * candidate in the list for each component.
 */
-template<typename Int, typename Real> void SearchCombinedMRG<Int, Real>::computeCombination(const IntVec& selectedCandidates)
+template<typename Int, typename Real> void SearchCombinedMRG<Int, Real>::computeCombination(const IntVec& selectedCandidates,
+    std::vector<IntVec>* componentCoefficients)
 {
     Int otherModuli, inverse, weight;
     if (selectedCandidates.length() != static_cast<long>(components.size()))
         throw std::invalid_argument("One index is required per component");
     if (components.empty() || this->order <= 0)
         throw std::invalid_argument("Combined components and order must be configured");
-    Int product(1);
-    for (long c = 0; c < selectedCandidates.length(); ++c) {
-        const CandidateList<Int>& component = components[c];
-        if (component.getOrder() != this->order || component.getModulus() <= Int(1))
-        throw std::invalid_argument("Invalid component order or modulus");
-         product *= component.getModulus();
-    }
-    this->modulus = product;
-
     this->aa.SetLength(this->order + 1);
+    if (componentCoefficients) {
+        componentCoefficients->clear();
+        componentCoefficients->reserve(components.size());
+    }
     for (long j = 0; j <= this->order; ++j) this->aa[j] = 0;
     // Adapted from computeCombination() from MRGCombined: 
     // For each component, get the candidate indexed by selectedCandidates[c].
     // Compute the weight for that component's modulus, then add the selected
     // contribution to each combined coefficient.
-    for (std::size_t c = 0; c < components.size(); ++c) {
+    for (long c = 0; c < this->numComp; ++c) {
         // Use references here
         const CandidateList<Int>& component = components[c];
         const std::list<Candidate<Int>>& list = component.getList();
@@ -235,7 +230,9 @@ template<typename Int, typename Real> void SearchCombinedMRG<Int, Real>::compute
             this->aa[j] = (this->aa[j] + candidate.getAa()[j] * weight) % this->modulus;
             if (this->aa[j] < 0) this->aa[j] += this->modulus;
         }
-    }
+        if (componentCoefficients) componentCoefficients->push_back(candidate.getAa());
+    }    
+    
 }
 
 //============================================================================
@@ -269,6 +266,7 @@ void SearchCombinedMRG<Int, Real>::searchLoopDeterministic(IntLattice<Int, Real>
 {
     // positions is an odometer: one position per component list.
     std::vector<std::size_t> positions(components.size(), 0);
+    std::vector<IntVec> componentCoefficients;
     IntVec selectedCandidates;
     selectedCandidates.SetLength(static_cast<long>(components.size()));
     unsigned iterationsUntilTimeCheck = 0;
@@ -277,11 +275,12 @@ void SearchCombinedMRG<Int, Real>::searchLoopDeterministic(IntLattice<Int, Real>
         if (this->timeExpired(iterationsUntilTimeCheck)) break;
         for (std::size_t c = 0; c < components.size(); ++c)
             selectedCandidates[static_cast<long>(c)] = NTL::conv<Int>(static_cast<long>(positions[c]));
-        computeCombination(selectedCandidates);
+        computeCombination(selectedCandidates, &componentCoefficients);
         ++this->numCandidatesExamined;
         if (this->maxPeriod)  ++this->numMaxPeriodCandidates;
         if (this->progress) old = this->printProgress(old);
-        this->testCandidate(proj);
+        this->testCandidate(proj, &componentCoefficients);        
+        if (!this->calculateFOM && this->bestCandidates.full()) break;
         // Advance the odometer. The last component varies fastest.
         std::size_t c = components.size();
         while (c > 0) {
@@ -311,6 +310,7 @@ void SearchCombinedMRG<Int, Real>::searchLoopRandom(
     IntLattice<Int, Real>* proj, int& old)
 {
     IntVec selectedCandidates;
+    std::vector<IntVec> componentCoefficients;
     selectedCandidates.SetLength(components.size());
     unsigned iterationsUntilTimeCheck = 0;
     std::size_t combinationLimit = 1;
@@ -325,22 +325,20 @@ void SearchCombinedMRG<Int, Real>::searchLoopRandom(
     }
 
     while (!this->reachedNumGeneratorLimit() && this->numCandidatesExamined < combinationLimit) {
-        // Check before the first draw, then every 1,000 draws.
         if (this->timeExpired(iterationsUntilTimeCheck)) break;
-        // The loop randomly selects one candidate from the list of each compoent
+        // The loop randomly selects one candidate from the list of each component
         // and stores its index in selectedCandidates
         for (std::size_t c = 0; c < components.size(); ++c) {
             const long lastIndex = components[c].getList().size() - 1;
             selectedCandidates[c] = randInt(0, lastIndex);
         }
-        computeCombination(selectedCandidates);
-        ++this->numCandidatesExamined;
+        computeCombination(selectedCandidates, &componentCoefficients);
         // Assumes the supplied lists contain full-period components and
         // that no additional combined-period check is required.
         ++this->numCandidatesExamined;
         if (this->maxPeriod) ++this->numMaxPeriodCandidates;
         if (this->progress) old = this->printProgress(old);
-        this->testCandidate(proj);
+        this->testCandidate(proj, &componentCoefficients);
         if (!this->calculateFOM && this->bestCandidates.full()) break;
     }
 }

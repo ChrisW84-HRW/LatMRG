@@ -2,6 +2,7 @@
 #define LATMRG_CANDIDATE_H
 
 #include <list>
+#include <vector>
 
 #include "latticetester/FlexTypes.h"
 
@@ -13,11 +14,13 @@ struct Candidate
     Int modulus;
     IntVec aa;
     double merit = 0.0; // Also used when no FOM is calculated.
+    std::vector<IntVec> componentCoefficients;
 
     const Int& getModulus() const { return modulus; }
     const IntVec& getAa() const { return aa; }
     int64_t getOrder() const { return aa.length() - 1;}
     double getMerit() const { return merit; }
+    const std::vector<IntVec>& getComponentCoefficients() const { return componentCoefficients; }
 };
 
 template<typename Int>

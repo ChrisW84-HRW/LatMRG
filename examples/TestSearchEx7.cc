@@ -105,6 +105,8 @@ int main()
     // as well because the FOM normalizer needs the modulus now.
     combined.calculateModulus();
     combined.setMaxDim(maxdim);
+    combined.setOutputToGenFile(true);
+    combined.setFilename("test_combined.gen");
 
     NTL::Vec<int64_t> t;
     t.SetLength(3);

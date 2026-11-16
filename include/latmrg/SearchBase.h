@@ -187,7 +187,7 @@ struct SearchBase
   * computes its merit, and retains it if it ranks among the best candidates.
   * Otherwise, retains the coefficients without constructing a lattice.
   */ 
-   void testCandidate(IntLattice<Int, Real>* proj);
+   void testCandidate(IntLattice<Int, Real>* proj, const std::vector<IntVec>* componentCoefficients = nullptr);
    
    /**
    * This function checks whether the generated lattice satisfies the
@@ -342,6 +342,7 @@ struct SearchBase
  * Writes the retained candidates to a .gen file.
  * The format corresponds to the old one from the Modula-2 version.
  */
+/*
 template<typename Int, typename Real, typename Lat>
 void SearchBase<Int, Real, Lat>::writeGenFile() const
 {
@@ -362,7 +363,36 @@ void SearchBase<Int, Real, Lat>::writeGenFile() const
     }
     if (!genFile) throw std::runtime_error("Failed to write .gen file: " + filename);
 }
+*/
 
+template<typename Int, typename Real, typename Lat>
+void SearchBase<Int, Real, Lat>::writeGenFile() const
+{
+    std::ofstream genFile(filename, std::ios::out | std::ios::trunc);
+    if (!genFile) throw std::runtime_error("Failed to open .gen file: " + filename);
+    genFile << numComp << '\n';
+    for (long c = 0; c < numComp; ++c) {
+        genFile << getComponentModulus(c) << '\n';
+        genFile << getComponentOrder(c) << '\n';
+    }
+    genFile << bestCandidates.getList().size() << '\n';
+    for (const Candidate<Int>& candidate : bestCandidates.getList()) {
+        if (genType == COMBO) {
+            for (const IntVec& coefficients :
+                 candidate.getComponentCoefficients()) {
+                for (long j = 1; j < coefficients.length(); ++j)
+                    genFile << coefficients[j] << "\n\n";
+            }
+        } else {
+            const IntVec& coefficients = candidate.getAa();
+            for (long j = 1; j < coefficients.length(); ++j)
+                genFile << coefficients[j] << "\n\n";
+        }
+    }
+
+    if (!genFile)
+        throw std::runtime_error("Failed to write .gen file: " + filename);
+}
 
   //===========================================================================
 
@@ -377,10 +407,11 @@ void SearchBase<Int, Real, Lat>::writeGenFile() const
  * The coefficients must match those of the current working lattice.
  */
 template<typename Int, typename Real, typename Lat> 
-void SearchBase<Int, Real, Lat>::testCandidate(IntLattice<Int, Real>* proj)
+void SearchBase<Int, Real, Lat>::testCandidate(IntLattice<Int, Real>* proj, const std::vector<IntVec>* componentCoefficients)
 {
     Candidate<Int> candidate{modulus, aa, 0.0};
     if (!calculateFOM) {
+        if (componentCoefficients != nullptr) candidate.componentCoefficients = *componentCoefficients;
         bestCandidates.addWithoutMerit(candidate);
         return;
     }
@@ -391,6 +422,7 @@ void SearchBase<Int, Real, Lat>::testCandidate(IntLattice<Int, Real>* proj)
       candidate.getMerit() > bestCandidates.getCutoffMerit()
       : candidate.getMerit() < bestCandidates.getCutoffMerit());
     if (retained) {
+        if (componentCoefficients != nullptr) candidate.componentCoefficients = *componentCoefficients;
         bestCandidates.add(candidate);
         if (verbose > 2) {
             std::cout << "New element in the list of best candidates:\n"
