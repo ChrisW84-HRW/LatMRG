@@ -44,6 +44,7 @@
 #include "latticetester/WeightsUniform.h"
 
 #include "latmrg/Candidate.h"
+#include "latmrg/GenFileReader.h"
 #include "latmrg/EnumTypes.h"
 #include "latmrg/MWCLattice.h"
 #include "latmrg/MRGLattice.h"
@@ -97,6 +98,7 @@ struct SearchBase
     std::string filename = "outputSearch.gen"; // Name of the .gen file, default = "outputSearch.gen"
     int verbose = 1; // Level of verbosity of the printed output, default = 1
     int maxIterationsUntilTimeCheck = 1000; // number of iterations until time is checked, default = 1000
+    GenFileReader<Int>* genFileReader = nullptr; // A pointer to a genFileReader not owned by SearchBase
     
     /**
      * Pointer to a figure of merit object
@@ -144,6 +146,12 @@ struct SearchBase
     void setVerbose(int value) {verbose = value;}
     int getMaxIterationsUntilTimeCheck() const {return maxIterationsUntilTimeCheck;}
     void setMaxIterationsUntilTimeCheck(int value) {maxIterationsUntilTimeCheck = value;}
+    void setGenFileReader(GenFileReader<Int>& reader) {
+        if (reader.getNumComponents() != 1) throw std::invalid_argument("SearchMRG requires a one-component .gen file");
+        genFileReader = &reader;
+        this->modulus = reader.getComponentModulus(0);
+        this->order = reader.getComponentOrder(0);
+    }
 
     void setFOM(FigureOfMeritM<Int, Real> & value) {fom = &value;}
 

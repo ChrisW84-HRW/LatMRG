@@ -23,6 +23,7 @@
 #include <NTL/ZZ.h>
 
 #include "latmrg/SearchBase.h"
+#include "latmrg/GenFileReader.h"
 
 namespace LatMRG {
 
@@ -41,8 +42,14 @@ struct SearchCombinedMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     }
 
     // These functions the the modulus, the order and the coefficients of a specific component
-    Int getComponentModulus(int i) const override  {return components.at(i).getModulus(); }
-    long getComponentOrder(int i) const override {return components.at(i).getOrder();}
+    Int getComponentModulus(int i) const override  {
+        if (this->genFileReader) return this->genFileReader->getComponentModulus(i);
+        return components.at(i).getModulus();
+    }
+    long getComponentOrder(int i) const override {
+        if (this->genFileReader) return this->genFileReader->getComponentOrder(i);
+        return components.at(i).getOrder();
+    }
     const IntVec& getCurrentCoefficients() const override {return this->aa;}
 
     /**
@@ -50,9 +57,11 @@ struct SearchCombinedMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
      * vectors until its search region or a configured limit is reached.
      * searchLoopDeterministic calculates all combinations of the stored list of candidates.
      * SearchLoopRandom draws random combinations of the stored lists of candidates.
+     * SearchLoopFromFile checks all generators stored in a .gen file
      */
     void searchLoopDeterministic(IntLattice<Int, Real>* proj, int& old);
     void searchLoopRandom(IntLattice<Int, Real>* proj, int& old);
+    void searchLoopFromFile(IntLattice<Int, Real>* proj, int& old);
 
     // Required by SearchBase; combined searching is not implemented yet.
     bool checkMaxPeriod(MRGLattice<Int, Real>&) override;
@@ -65,6 +74,20 @@ struct SearchCombinedMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     void addComponentCandidates(const CandidateList<Int>& candidates);
     void clearComponents();
     void removeComponent(int64_t index);
+
+    // Also orders must be handled correctly in this case
+    void setGenFileReader(GenFileReader<Int>& reader)
+    {
+        if (reader.getNumComponents() < 2) throw std::invalid_argument("SearchCombinedMRG requires at least two components");
+        this->genFileReader = &reader;
+        this->numComp = static_cast<long>(reader.getNumComponents());
+        this->order = 0;
+        for (long c = 0; c < this->numComp; ++c) {
+            const long componentOrder = reader.getComponentOrder(c);
+            if (componentOrder > this->order) this->order = componentOrder;
+        }
+        this->modulus = Int(0);
+    }
 
     /*
     * Calculates the modulus of the combined MRG.
@@ -178,15 +201,10 @@ template<typename Int, typename Real> void SearchCombinedMRG<Int, Real>::removeC
 */
 template<typename Int, typename Real> void SearchCombinedMRG<Int, Real>::calculateModulus()
 {
+    if (this->numComp == 0) throw std::invalid_argument("No components configured");
     Int product(1);
-    for (long c = 0; c < this->numComp; ++c) {
-        const CandidateList<Int>& component = components[c];
-        if (component.getOrder() != this->order || component.getModulus() <= Int(1))
-            throw std::invalid_argument("Invalid component order or modulus");
-        product *= component.getModulus();
-    }
+    for (long c = 0; c < this->numComp; ++c) product *= getComponentModulus(c);
     this->modulus = product;
-    setModulusIntP<Int>(this->modulus);
 }
 
 //============================================================================
@@ -338,6 +356,63 @@ void SearchCombinedMRG<Int, Real>::searchLoopRandom(
         ++this->numCandidatesExamined;
         if (this->maxPeriod) ++this->numMaxPeriodCandidates;
         if (this->progress) old = this->printProgress(old);
+        this->testCandidate(proj, &componentCoefficients);
+        if (!this->calculateFOM && this->bestCandidates.full()) break;
+    }
+}
+//============================================================================
+
+/**
+ * Search loop checking all candidates saved in a .gen file
+ */
+template<typename Int, typename Real>
+void SearchCombinedMRG<Int, Real>::searchLoopFromFile(IntLattice<Int, Real>* proj, int& old)
+{
+    if (!this->genFileReader) throw std::logic_error("No .gen reader configured");
+    std::vector<IntVec> componentCoefficients;
+    unsigned iterationsUntilTimeCheck = 0;
+    Int componentModulus, otherModuli, inverse, weight;
+    long componentOrder;
+    // Limit the number of file records tested, including period failures.
+    while (this->numCandidatesExamined < this->maxNumGen) {
+        if (this->timeExpired(iterationsUntilTimeCheck)) break;
+        if (!this->genFileReader->readNext(componentCoefficients)) break;
+        ++this->numCandidatesExamined;
+        bool accepted = true;
+        // Checks if maximal period condition is satisfied for all components
+        if (this->maxPeriod) {
+            for (long c = 0; c < this->numComp; ++c) {
+                const Int componentModulus = getComponentModulus(c);
+                const long componentOrder = getComponentOrder(c);
+                // Period checks are for individual components, not
+                // for an ordinary MRG modulo the product.
+                setModulusIntP<Int>(componentModulus);
+                MRGComponent<Int> component(componentModulus, componentOrder);
+                if (!component.maxPeriod(componentCoefficients[c])) {
+                    accepted = false;
+                    break;
+                }
+            }
+            // Restore the combined modulus for subsequent FOM work.
+            setModulusIntP<Int>(this->modulus);
+            if (accepted) ++this->numMaxPeriodCandidates;
+        }
+        if (this->progress) old = this->printProgress(old);
+        if (!accepted) continue;
+        // Combine coefficients directly from the data stored in the file
+        this->aa.SetLength(this->order + 1);
+        for (long j = 0; j <= this->order; ++j) this->aa[j] = Int(0);
+        for (long c = 0; c < this->numComp; ++c) {
+            componentModulus = getComponentModulus(c);
+            componentOrder = getComponentOrder(c);
+            otherModuli = this->modulus / componentModulus;
+            inverse = NTL::InvMod(otherModuli % componentModulus, componentModulus);
+            weight = otherModuli * inverse;
+            for (long j = 1; j <= componentOrder; ++j) {
+                this->aa[j] = (this->aa[j] + componentCoefficients[c][j] * weight) % this->modulus;
+                if (this->aa[j] < Int(0)) this->aa[j] += this->modulus;
+            }
+        }
         this->testCandidate(proj, &componentCoefficients);
         if (!this->calculateFOM && this->bestCandidates.full()) break;
     }

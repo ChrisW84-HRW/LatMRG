@@ -27,6 +27,7 @@
 #include "latmrg/EnumTypes.h"
 #include "latticetester/Util.h"
 #include "latmrg/Primitivity.h"
+#include "latmrg/GenFileReader.h"
 
 namespace LatMRG {
 
@@ -134,6 +135,7 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     * RandomApproxFactoringByAkBox: Box search where all elements satisfy the approximate factoring condition.
     * RandomPowerOfTwo: draws vectors as signed sums of powers of two.
     * RandomPowerOfTwoByAk: keeps each accepted a_k fixed for several such vectors.
+    * FromFile reads a .gen file and tests all generators stored therein
     */
     void searchLoopExhaustive(IntLattice<Int, Real>* proj, int& old);
     void searchLoopRandom(IntLattice<Int, Real>* proj, int& old);
@@ -145,6 +147,8 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
     void searchLoopRandomApproxFactoringByAkBox(IntLattice<Int, Real>* proj, int& old);
     void searchLoopRandomPowerOfTwo(IntLattice<Int, Real>* proj, int& old);
     void searchLoopRandomPowerOfTwoByAk(IntLattice<Int, Real>* proj, int& old);
+    void searchLoopFromFile(IntLattice<Int, Real>* proj, int& old);
+
 
     /**
     * Exhaustively tests the coefficient vectors in the specified box.
@@ -896,6 +900,37 @@ void SearchMRG<Int, Real>::searchLoopRandomApproxFactoringByAkBox(IntLattice<Int
         }
     }
 }
+//===========================================================================
+
+/**
+ * Search loop checking all candidates saved in a .gen file
+ */
+template<typename Int, typename Real>
+void SearchMRG<Int, Real>::searchLoopFromFile(IntLattice<Int, Real>* proj, int& old)
+{
+    if (!this->genFileReader) throw std::logic_error("No .gen reader configured");
+    std::vector<IntVec> componentCoefficients;
+    unsigned iterationsUntilTimeCheck = 0;
+    // maxNumGen limits the number of file records examined, including
+    // records rejected by the maximal-period test.
+    while (this->numCandidatesExamined < this->maxNumGen) {
+        if (this->timeExpired(iterationsUntilTimeCheck))  break;
+        if (!this->genFileReader->readNext(componentCoefficients)) break; // Reached the number of generators in the header.
+        this->aa = componentCoefficients[0];
+        ++this->numCandidatesExamined;
+        if (this->maxPeriod) {
+            if (!getMRGComponent().maxPeriod(this->aa)) {
+                if (this->progress) old = this->printProgress(old);
+                continue;
+            }
+            ++this->numMaxPeriodCandidates;
+        }
+        if (this->progress) old = this->printProgress(old);
+        this->testCandidate(proj);
+        if (!this->calculateFOM && this->bestCandidates.full()) break;
+    }
+}
+
 //===========================================================================
 
 /**
