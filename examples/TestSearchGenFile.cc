@@ -20,6 +20,7 @@
 #include "latmrg/GenFileReader.h"
 #include "latmrg/SearchMRG.h"
 #include "latmrg/SearchCombinedMRG.h"
+#include "latmrg/SearchMWC.h"
 
 using namespace LatMRG;
 

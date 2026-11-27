@@ -454,11 +454,12 @@ int SearchBase<Int, Real, Lat>::performSearch( void (SearchType::*searchLoop)(In
     std::unique_ptr<IntLattice<Int, Real>> proj;
     if (calculateFOM) {
         assert(fom != nullptr);
-        proj = std::make_unique<IntLattice<Int, Real>>(modulus, fom->getTVector().length(), norm);
+        const Int projectionModulus = (genType == MWC) ? Int(2) : modulus;
+        proj = std::make_unique<IntLattice<Int, Real>>(projectionModulus, fom->getTVector().length(), norm);
     }
     // Initialize the modulus in NTL modular integer arithmetic.
     // used for checking maximal period condition.
-    setModulusIntP<Int>(modulus);
+    if (genType != MWC) setModulusIntP<Int>(modulus);
     timer.init();
     int old = 0;
     if (progress) old = printProgress(-1);

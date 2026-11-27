@@ -18,250 +18,394 @@
 #ifndef LATMRG_SEARCHMWC_H
 #define LATMRG_SEARCHMWC_H
 
-#include <vector>
-#include <utility>
 #include <cstdint>
+#include <memory>
+#include <stdexcept>
+#include <vector>
 
 #include "latmrg/SearchBase.h"
-#include "latticetester/Util.h"
+#include "latmrg/LCGLattice.h"
+#include "latmrg/MWCComponent.h"
 
 namespace LatMRG {
 
-/**
- * Configuration for an MWC search.
- */
-template<typename Int, typename Real> struct SearchMWC : public SearchBase<Int, Real, MWCLattice<Int, Real>>
+template<typename Int, typename Real>
+struct SearchMWC : public SearchBase<Int, Real, LCGLattice<Int, Real>>
 {
-    SearchMWC() : SearchBase<Int, Real, MWCLattice<Int, Real>>(MWC) {}
+    SearchMWC() : SearchBase<Int, Real, LCGLattice<Int, Real>>(MWC) {this->order = 0;}
 
-    Int modulus;   // The modulus m of the equivalent LCG (to be computed)
-    long powMod;   // Value of e such that the modulus is b = 2^e
-    long order;    // The order k
+    // MWC base b = 2^e. The associated LCG modulus is candidate-dependent
+    // and is stored separately in this->modulus.
+    int64_t exponent = 0;
+    Int base = Int(0);
+
+     // Definition of search range    
     IntVec lowBoundaries;  // The low and high boundaries for the coefficients a_j
-    IntVec highBoundaries; // Default values are 1 and b-1
-    vector<long> numPowerTwo;  // Values of n_i (max number of powers of 2)
-    vector<long> maxPowerTwo;  // Values of p_i (max power of 2)
-    vector<int64_t> randomBits; // For random searches, the nonzero coefficients `a_j` are generated randomly with `e_j` random bits
-    int64_t numaj; // number of positive coefficients 
-    vector<vector<pair<long,long>>> equalCoeffs;  // List of pairs of coefficients that must be equal
+    IntVec highBoundaries;
 
-    // Get and set methods
-    Int getModulus() const { return modulus; }
-    void setModulus(const Int& value) { modulus = value;}
-    long getPowMod() const { return powMod;}
-    void setPowMod(long value) { powMod = value;}
-    long getOrder() const { return order;}
-    void setOrder(long value) { order = value; }
+    // Optional coefficient constraints.
+    std::vector<int> equalityGroups;
+    std::vector<long> numPowerTwo;
+    std::vector<long> maxPowerTwo;
+
+    PeriodRequirement periodRequirement = PeriodRequirement::SafePrimeHalfPeriod;
+    int64_t primalityTrials = 100;
+
+    // Get and set functions
+    int64_t getExponent() const {return exponent;}
+    void setExponent(int64_t value) {base = NTL::power(Int(2), value);}
+    const Int& getBase() const {return base;}
     const IntVec& getLowBoundaries() const {return lowBoundaries;}
     void setLowBoundaries(const IntVec& values) {lowBoundaries = values;}
-    Int getLowBoundary(int i) const {return lowBoundaries[i];}
-    void setLowBoundary(int i, const Int& value) {lowBoundaries[i] = value;}
     const IntVec& getHighBoundaries() const {return highBoundaries;}
     void setHighBoundaries(const IntVec& values) {highBoundaries = values;}
-    Int getHighBoundary(int i) const {return highBoundaries[i];}
-    void setHighBoundary(int i, const Int& value) {highBoundaries[i] = value;}
-    const vector<long>& getNumPowerTwo() const {return numPowerTwo;}
-    void setNumPowerTwo(const vector<long>& values) {numPowerTwo = values;}
-    const vector<long>& getMaxPowerTwo() const {return maxPowerTwo;}
-    void setMaxPowerTwo(const vector<long>& values) {maxPowerTwo = values;}
-    const vector<int64_t>& getRandomBits() const {return randomBits;}
-    void setRandomBits(const vector<int64_t>& values) {randomBits = values;}
-    int64_t getRandomBits(int i) const {return randomBits[i];}
-    void setRandomBits(int i, int64_t value) {randomBits[i] = value;}
-    int64_t getNumaj() const {return numaj;}
-    void setNumaj(int64_t value) {numaj = value;}
-    const vector<vector<pair<long,long>>>& getEqualCoeffs() const {return equalCoeffs;}
-    void setEqualCoeffs(const vector<vector<pair<long,long>>>& values) {equalCoeffs = values; }
-    Int getNoMultipliers() const
-    {
-        Int total(1);
-        for (long i = 1; i <= order; i++) {
-            total *= highBoundaries[i] - lowBoundaries[i] + 1;
-        }
-        return total;
-    }
-    // There is only a single component
-    Int getComponentModulus(int k = 0) const override {return getModulus();}
-    long getComponentOrder(int k = 0) const override {return getOrder();}
-
-    MWCLattice<Int, Real>* nextGeneratorExhaustive() override;
-
-    MWCLattice<Int, Real>* nextGeneratorRandom() override;
-        
-    bool checkMaxPeriod(MWCLattice<Int, Real>& lat) override;
-
-    private: 
+    const std::vector<int>& getEqualityGroups() const {return equalityGroups;}
+    void setEqualityGroups(const std::vector<int>& values) { equalityGroups = values;}
+    const std::vector<long>& getNumPowerTwo() const {return numPowerTwo;}
+    void setNumPowerTwo(const std::vector<long>& values) {numPowerTwo = values;}
+    const std::vector<long>& getMaxPowerTwo() const {return maxPowerTwo;}
+    void setMaxPowerTwo(const std::vector<long>& values) {maxPowerTwo = values;}
+    PeriodRequirement getPeriodRequirement() const {return periodRequirement;}
+    void setPeriodRequirement(PeriodRequirement value) {periodRequirement = value;}
+    int64_t getPrimalityTrials() const { return primalityTrials; }
+    void setPrimalityTrials(int64_t value) { primalityTrials = value;}
+    Int getComponentModulus(int) const override {return this->modulus;}
+    long getComponentOrder(int) const override {return this->order;}
+    const IntVec& getCurrentCoefficients() const override {return this->aa;}
 
     /**
-    * Helper class used to find admissible MWC moduli.
+    * Search strategies. Each function generates and tests candidate coefficient
+    * vectors until its search region or a configured limit is reached.
     *
-    * Searches around 2^e - 1 +/- c and returns a modulus m such that:
-    *
-    *   - m is prime
-    *   - (m-1)/2 is prime
-    *   - 2^((m-1)/2) != 1 (mod m)
-    *
-    * These conditions provide the safe-prime properties required
-    * for MWC maximal-period behaviour.
+    * Exhaustive: enumerates the full coefficient range.
+    * Random: draws independent vectors within the coefficient bounds.
+    * RandomPowerOfTwo: draws vectors as signed sums of powers of two.
+    * FromFile reads a .gen file and tests all generators stored therein
     */
-    class Modulus {
-        public:
+    void searchLoopExhaustive(IntLattice<Int, Real>* proj, int& old);
+    void searchLoopRandom(IntLattice<Int, Real>* proj, int& old);
+    void searchLoopRandomPowerOfTwo(IntLattice<Int, Real>* proj, int& old);
+    void searchLoopFromFile(IntLattice<Int, Real>* proj, int& old);
 
-        /**
-        * Search will begin at `2^e±c` and will increase of decrease depending on
-        * `increase`.
-        */
-        Modulus(long e, Int c, bool increase) {
-            m = (Int(1)<<e) - 1;
-            this->increase = increase;
-            if (increase) m+=c;
-            else m-=c;
-        }
+    /**
+     * This function checks whether the generated lattice satisfies the
+     * maximal-period requirement for an MRG.
+     */
+    bool checkMaxPeriod(LCGLattice<Int, Real>& lat) override;
+    
+    /*
+    * Helper function which calculates the groups of equal coefficients 
+    * according to the vector equalityGroups
+    */
+    void prepareEqualityGroups();
 
-        /**
-        * This function finds the next value for `m`. This can return 1 if
-        * `increase` is `false` and `m` gets to 1.
-        */
-        Int next() {
-            while (m > 1) {
-                nextM();
-                LatMRG::PrimeType status = LatMRG::IntFactor<Int>::isPrime (m, KTRIALS);
-                if (status == LatMRG::PRIME || status == LatMRG::PROB_PRIME) {
-                  if (1 == m % 4) continue;
-                  Int m1 = (m - 1)/2;
-                  status = LatMRG::IntFactor<Int>::isPrime (m1, KTRIALS);
-                  if (status != LatMRG::PRIME && status != LatMRG::PROB_PRIME) continue;
-                  // For MWC we check 2^{(m-1)/2} \neq 1 mod m.
-                  NTL::ZZ_p::init(NTL::ZZ(m));
-                  NTL::ZZ_p a = NTL::power(NTL::ZZ_p(2), m1);
-                  if (NTL::IsOne(a)) {
-                    continue;
-                  }
-                  return m;
-                }
-              }
-           return Int(-1);
-        }
+private:
 
-        private:
+    /*
+    * This lattice is re-used for storing the current lattice if needed.
+    * The function gets the lattice.
+    */
+    std::unique_ptr<LCGLattice<Int, Real>> workingLattice;
+    LCGLattice<Int, Real>& getWorkingLattice() override;
 
-        static const long KTRIALS = 200;  //  The user must be allowed to select this constant!
+   /*
+    * These functions draw random coefficient with additional constaints.
+    * drawRandomCoefficients() respects the set equal coefficients.
+    * drawPowerOfTwoCoefficient draws a single coefficient which is the sum of powers of two
+    */
+    void drawRandomCoefficients();
+    Int drawPowerOfTwoCoefficient(int i);
 
-        /**
-        * Last valid modulus found (or 2^e).
-        */
-        Int m;
+    /**
+    * Computes the associated LCG modulus for the current MWC coefficients
+    * and prepares the lattice, projection, and FOM normalizer for evaluation.
+    * 
+    * Returns false for inadmissible generator vectors.
+    */
+    bool prepareCandidate(IntLattice<Int, Real>* proj);
+    
+    /**
+    * Returns whether the current MWC candidate satisfies the configured
+    * period requirement. Called only when maximal period is requested.
+    */
+    bool currentCandidateHasRequiredPeriod();
 
-        /**
-        * As passed to constructor.
-        */
-        bool increase;
-
-        /**
-        * Increment/decrement m
-        */
-        void nextM () {
-            if (increase) m += 2;
-            else m -= 2;
-            if (0 == m % 5){
-            if (increase) m += 2;
-            else m -= 2;
-            }
-        }
-    };
+    int numEqualityGroups = 0;
+    IntVec groupLow;
+    IntVec groupHigh;
+    IntVec groupValue;
 
 };
 
-//============================================================================
-// Implementation
 
-  /**
-  * nextGeneratorExhaustive() performs an exhaustive enumeration of the admissible MWC 
-  * generators defined by the configuration. The multiplier coefficients are 
-  * obtained by decoding the current generator index into the corresponding 
-  * coefficient values within the prescribed ranges. The resulting coefficients 
-  * are then used to construct the associated MWC lattice.
-  */
-  template<typename Int, typename Real> MWCLattice<Int, Real>* SearchMWC<Int, Real>::nextGeneratorExhaustive()   {
-    auto* comp = this->conf.genComponents[0];
-    
-    Int range, val;
-    Int tmp = NTL::to_ZZ(this->currentGen);
-    
-    int k = comp->getOrder();
-    NTL::Vec<NTL::ZZ> aa;
-    aa.SetLength(k + 1);
+//===========================================================================
 
-    
-    // decode currentGen into multi-index
-    for (int i = 1; i <= k; i++) {
-      range = comp->getHighBoundary(i) - comp->getLowBoundary(i) + 1;
-      val = tmp % range;
-      tmp /= range;
-      aa[i] = comp->getLowBoundary(i) + val;
+
+/**
+* searchLoopExhaustive performs an exhaustive enumeration of the admissible MWC generators 
+* generators defined by the configured bounds.
+*/
+template<typename Int, typename Real>
+void SearchMWC<Int, Real>::searchLoopExhaustive(IntLattice<Int, Real>* proj, int& old)
+{
+    this->aa.SetLength(this->order + 1);
+    for (long j = 0; j <= this->order; ++j) this->aa[j] = lowBoundaries[j];
+    unsigned iterationsUntilTimeCheck = 0;
+    bool finished = false;
+    while (!finished && this->numCandidatesExamined < this->maxNumGen) {
+        if (this->timeExpired(iterationsUntilTimeCheck)) break;
+        ++this->numCandidatesExamined;
+        if (prepareCandidate(proj)) {
+            if (!this->maxPeriod || currentCandidateHasRequiredPeriod()) {
+                if (this->maxPeriod) ++this->numMaxPeriodCandidates;
+                this->testCandidate(proj);
+                if (!this->calculateFOM && this->bestCandidates.full()) break;
+            }
+        }
+        if (this->progress)     old = this->printProgress(old);
+        // Advance to the next vector; a_0 changes fastest.
+        for (long j = 0; j <= this->order; ++j) {
+            if (this->aa[j] < highBoundaries[j]) {
+                ++this->aa[j];
+                break;
+            }
+            this->aa[j] = lowBoundaries[j];
+            if (j == this->order)
+                finished = true;
+        }
     }
+}
 
-    Int b = NTL::power(Int(2), comp->getPowMod());
+//===========================================================================
 
-    if (this->currentGen < this->conf.max_gen && this->currentGen < comp->getNoMultipliers())
-    {
-      ++this->currentGen;
-      return new MWCLattice<Int, Real>(b, aa, this->conf.maxdim, this->conf.maxdim, this->conf.maxdim);
+/**
+* sarchLoopRandom generates admissible MRG generators by randomly selecting 
+* the recurrence coefficients within the ranges specified in the configuration.
+* If the search is restricted to generators with maximal period, then 
+* searchLoopRandom only yields generators having this property.
+*/
+template<typename Int, typename Real>
+void SearchMWC<Int, Real>::searchLoopRandom(IntLattice<Int, Real>* proj, int& old)
+{
+    this->aa.SetLength(this->order + 1);
+    prepareEqualityGroups();
+    unsigned iterationsUntilTimeCheck = 0;
+    while (this->numCandidatesExamined < this->maxNumGen) {
+        if (this->timeExpired(iterationsUntilTimeCheck)) break;
+        drawRandomCoefficients();
+        ++this->numCandidatesExamined;
+        if (prepareCandidate(proj)) {
+            if (!this->maxPeriod || currentCandidateHasRequiredPeriod()) {
+                if (this->maxPeriod)  ++this->numMaxPeriodCandidates;
+                this->testCandidate(proj);
+                if (!this->calculateFOM && this->bestCandidates.full()) break;
+            }
+        }
+        if (this->progress) old = this->printProgress(old);
     }
+}
 
-    return nullptr;
-  }
-
-  //===========================================================================
-
-  /**
-  * nextGeneratorRandom() generates admissible MWC generators by randomly 
-  * selecting the multiplier coefficients according to the bit-size restrictions
-  * and configuration parameters. It provides the random search analagoue of 
-  * nextGeneratorExhaustive() and can be used by performSearch() when a stochastic search.
-  */
-  template<typename Int, typename Real> MWCLattice<Int, Real>* SearchMWC<Int, Real>::nextGeneratorRandom() {
-    auto* comp = this->conf.genComponents[0];
-    int k = comp->getOrder();
-    NTL::Vec<NTL::ZZ> aa;
-    aa.SetLength(k + 1);
-    // Initialized
-    aa[0] = -1;
-    for (int64_t j = 1; j < k; j++)
-      aa[j] = 0;
-    Int b = NTL::power(Int(2), comp->getPowMod());
-
-    // Get random MWC generator
-    if (comp->getRandomBits(0) > 0) {
-         aa[0] = conv<Int>(LatticeTester::RandBits(comp->getRandomBits(0)));
-         if ((aa[0] % 2) == 0) aa[0] += 1;  // a_0 must be odd.
-      }
-    aa[k] = conv<Int>(LatticeTester::RandBits(comp->getRandomBits(k)));  // `ek` random bits for a_k.
-    for (int64_t j = 1; j < min(asMWC(comp)->numaj, k); j++)
-        aa[k-j] = conv<Int>(LatticeTester::RandBits(comp->getRandomBits(j)));  // `ej` random bits for a_{k-j}.
-    for (int64_t j = 1; j < -asMWC(comp)->numaj; j++)  // To impose equal coefficients, for testing.
-        aa[k-j] = aa[k];
-    
-    if (this->currentGen < this->conf.max_gen)
-    {
-      ++this->currentGen;
-      return new MWCLattice<Int, Real>(b, aa, this->conf.maxdim, this->conf.maxdim, this->conf.maxdim);
+/**
+ * Searches by drawing independent coefficient vectors as signed sums
+ * of distinct powers of two.
+ * 
+ * For each a_i, chooses between 1 and n_i distinct exponents from
+ * 0, ..., p_i, then independently chooses the sign of each term.
+ * Equality constraints and coefficient boundaries are not used.
+ */
+template<typename Int, typename Real>
+void SearchMWC<Int, Real>::searchLoopRandomPowerOfTwo(IntLattice<Int, Real>* proj, int& old)
+{
+    this->aa.SetLength(this->order + 1);
+    unsigned iterationsUntilTimeCheck = 0;
+    while (this->numCandidatesExamined < this->maxNumGen) {
+        if (this->timeExpired(iterationsUntilTimeCheck)) break;
+        for (int i = 0; i <= this->order; ++i) this->aa[i] = drawPowerOfTwoCoefficient(i);
+        ++this->numCandidatesExamined;
+        if (prepareCandidate(proj)) {
+            if (!this->maxPeriod || currentCandidateHasRequiredPeriod()) {
+                if (this->maxPeriod) ++this->numMaxPeriodCandidates;
+                this->testCandidate(proj);
+                if (!this->calculateFOM && this->bestCandidates.full()) break;
+            }
+        }        
+        if (this->progress) old = this->printProgress(old);
     }
+}
 
-    return nullptr;
-  }
+//===========================================================================
 
-  //===========================================================================
-  
-  /**
-  * This method checks whether the generated lattice satisfies the
-  * maximal-period requirement for an MWC lattice.
-  */
-  template<typename Int, typename Real> bool SearchMWC<Int, Real>::checkMaxPeriod(MWCLattice<Int, Real>& lat) {
-    return mIsSafePrime(lat.getModulus(), 100) && maxPeriodHalfMWC(lat.getModulus(), this->conf.genComponents[0]->getPowMod());
- }
+/**
+ * Computes the associated LCG modulus for the current MWC coefficients.
+ * Returns false if the candidate is inadmissible. Otherwise, updates the
+ * modulus-dependent state used for period and FOM calculations.
+ */
+template<typename Int, typename Real>
+bool SearchMWC<Int, Real>::prepareCandidate(IntLattice<Int, Real>* proj)
+{
+    // computeLCGModulusMWC requires gcd(a_0, b) == 1.
+    if (NTL::GCD(this->aa[0], base) != Int(1)) return false;
+    const Int m = computeLCGModulusMWC(base, this->aa);
+    if (m <= Int(1)) return false;
+    this->modulus = m;
+    setModulusIntP<Int>(this->modulus);
+    if (this->calculateFOM) {
+        proj->setModulus(this->modulus);
+        if (this->dualLattice) this->fom->getNormalizer()->computeBounds(-log(this->modulus), 1);
+        else this->fom->getNormalizer()->computeBounds(log(this->modulus), 1);
+    }
+    return true;
+}
+
+//===========================================================================
+
+/**
+ * Returns the working lattice for the current candidate.
+ *
+ * Constructs the lattice on first use and updates it with the current
+ * coefficients on subsequent calls. This function is called only when
+ * computing a figure of merit, so period-only searches do not construct
+ * a lattice.
+ */
+template<typename Int, typename Real>
+LCGLattice<Int, Real>& SearchMWC<Int, Real>::getWorkingLattice()
+{
+    if (!workingLattice) {
+        workingLattice = std::make_unique<LCGLattice<Int, Real>>(this->maxdim, this->norm);
+    }
+    workingLattice->setModulus(this->modulus);
+    workingLattice->seta(base);
+    return *workingLattice;
+}
+
+//===========================================================================
+
+/**
+ * Returns whether the current candidate meets the configured MWC period
+ * requirement: the safe-prime condition or the full-period test.
+ * Assumes prepareCandidate() has already computed the associated modulus.
+ */
+template<typename Int, typename Real>
+bool SearchMWC<Int, Real>::currentCandidateHasRequiredPeriod()
+{
+    // prepareCandidate() has already computed this->modulus.
+    if (periodRequirement == PeriodRequirement::SafePrimeHalfPeriod)
+        return mIsSafePrime(this->modulus, primalityTrials);
+
+    return maxPeriodMWC(this->modulus, base, primalityTrials);
+}
+
+//===========================================================================
+
+/**
+ * Draws one random value for each prepared equality group and copies it into
+ * every corresponding position of aa. This produces a coefficient vector
+ * satisfying the equality constraints.
+ *
+ * prepareEqualityGroups() must be called before this function.
+ */
+template<typename Int, typename Real>
+void SearchMWC<Int, Real>::drawRandomCoefficients()
+{
+    this->aa[0] = randInt(lowBoundaries[0], highBoundaries[0]);
+    for (int group = 1; group <= numEqualityGroups; ++group)
+        groupValue[group] = randInt(groupLow[group], groupHigh[group]);
+    for (int i = 1; i <= this->order; ++i) {
+        const int group = equalityGroups.empty() ? i : equalityGroups[i - 1];
+        this->aa[i] = groupValue[group];
+    }
+}
+
+//===========================================================================
+
+/**
+ * Draws coefficient a_i as a signed sum of distinct powers of two.
+ *
+ * Randomly selects between 1 and numPowerTwo[i-1] terms, with distinct
+ * exponents from 0 through maxPowerTwo[i-1]. The sign of each term is chosen
+ * independently.
+ */
+template<typename Int, typename Real> Int SearchMWC<Int, Real>::drawPowerOfTwoCoefficient(int i)
+{
+    const long ni = numPowerTwo[i];
+    const long pi = maxPowerTwo[i];
+    const long terms = randInt(1, std::min(ni, pi + 1));
+    std::vector<long> exponents(pi + 1);
+    for (long e = 0; e <= pi; ++e)
+        exponents[e] = e;
+    Int value(0);
+    for (long j = 0; j < terms; ++j) {
+        const long choice = randInt(j, pi);
+        std::swap(exponents[j], exponents[choice]);
+        const Int power = NTL::power(Int(2), exponents[j]);
+        if (randInt(0, 1) == 0)
+            value += power;
+        else
+            value -= power;
+    }
+    return value;
+}
+
+//===========================================================================
+
+/**
+ * Prepares the equality constraints for a search.
+ *
+ * Groups coefficients with the same equality label and determines the common
+ * admissible range for each group by intersecting bounds. An empty 
+ * equalityGroups vector treats all coefficients as independent.
+ */
+template<typename Int, typename Real> void SearchMWC<Int, Real>::prepareEqualityGroups()
+{
+    const int k = this->order;
+    if (!equalityGroups.empty() && equalityGroups.size() != static_cast<std::size_t>(k))
+        throw std::invalid_argument("One equality-group label is required per coefficient");
+    numEqualityGroups = 0;
+    groupLow.SetLength(k + 1);
+    groupHigh.SetLength(k + 1);
+    groupValue.SetLength(k + 1);
+    std::vector<bool> seen(k + 1, false);
+    for (int i = 1; i <= k; ++i) {
+        const int group = equalityGroups.empty() ? i : equalityGroups[i - 1];
+        if (group < 1 || group > k)
+            throw std::invalid_argument("Invalid equality-group label");
+        if (group > numEqualityGroups)
+            numEqualityGroups = group;
+        if (!seen[group]) {
+            groupLow[group] = lowBoundaries[i];
+            groupHigh[group] = highBoundaries[i];
+            seen[group] = true;
+        } else {
+            if (lowBoundaries[i] > groupLow[group])
+                groupLow[group] = lowBoundaries[i];
+            if (highBoundaries[i] < groupHigh[group])
+                groupHigh[group] = highBoundaries[i];
+        }
+    }
+    for (int group = 1; group <= numEqualityGroups; ++group) {
+        if (!seen[group] || groupLow[group] > groupHigh[group])
+            throw std::invalid_argument(
+                "Invalid or incompatible equality group");
+    }
+}
+
+//===========================================================================
+
+/**
+* This function checks whether the generated lattice satisfies the
+* maximal-period requirement for an MWC.
+* Probably this function will not be used since it requires to pass a lattice object which has not been creater.
+* Delete it if it is not necessary.
+*/
+template<typename Int, typename Real>
+bool SearchMWC<Int, Real>::checkMaxPeriod(LCGLattice<Int, Real>&)
+{
+    // Uses the current MWC candidate, prepared by prepareCandidate().
+    return currentCandidateHasRequiredPeriod();
+}
+
+//===========================================================================
 
 
 } // namespace LatMRG
-
 #endif // LATMRG_SEARCHMWC_H

@@ -140,6 +140,15 @@ enum LacunaryType {
    NONE, SUBVECTOR, ARBITRARYINDICES
 };
 
+/**
+ * Selects the MWC period criterion used when maximal period is requested.
+ *  'SafePrimeHalfPeriod' tests whether the associated LCG modulus is a safe prime
+ *  'FullPeriod' tests whether the base has period m - 1 modulo m.
+ */
+enum class PeriodRequirement {
+    SafePrimeHalfPeriod, FullPeriod
+};
+
 //============================================================================
 
 /**

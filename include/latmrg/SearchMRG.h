@@ -49,7 +49,7 @@ struct SearchMRG : public SearchBase<Int, Real, MRGLattice<Int, Real>>
 
     // Definition of search range    
     IntVec lowBoundaries;  // The low and high boundaries for the coefficients a_j 
-    IntVec highBoundaries; // Default values are 1 and m-1 
+    IntVec highBoundaries; 
 
     // Settings for random search loop algorithms
     long numRandomRegions = 1;   // For search of random boxes (corresponds to N_r in the guide)
@@ -387,10 +387,10 @@ void SearchMRG<Int, Real>::searchLoopBox(const IntVec& boxLow, const IntVec& box
 //===========================================================================
 
 /**
-* sarchLoopRandom() generates admissible MRG generators by randomly selecting 
+* sarchLoopRandom generates admissible MRG generators by randomly selecting 
 * the recurrence coefficients within the ranges specified in the configuration.
 * If the search is restricted to generators with maximal period, then 
-* searchLoopRandom() only yields generators having this property.
+* searchLoopRandom only yields generators having this property.
 */
 template<typename Int, typename Real>
 void SearchMRG<Int, Real>::searchLoopRandom(IntLattice<Int, Real>* proj, int& old)
@@ -418,11 +418,11 @@ void SearchMRG<Int, Real>::searchLoopRandom(IntLattice<Int, Real>* proj, int& ol
 
 
 /**
-* searchLoopExhaustive() performs an exhaustive enumeration of the admissible MRG 
+* searchLoopExhaustive performs an exhaustive enumeration of the admissible MRG 
 * generators defined by the configuration. Passes the full coefficient bounds to 
-* searchLoopBox(), which enumerates the coefficient vectors. If maximal period is 
+* searchLoopBox, which enumerates the coefficient vectors. If maximal period is 
 * required, vectors with an a_k that fails the period test are skipped. Accepted vectors 
-* are passed to testCandidate(); a lattice is constructed only when the FOM
+* are passed to testCandidate; a lattice is constructed only when the FOM
 * is calculated.
 */
 template<typename Int, typename Real>
@@ -434,7 +434,7 @@ void SearchMRG<Int, Real>::searchLoopExhaustive(IntLattice<Int, Real>* proj, int
 //===========================================================================
 
 /**
- * searchLoopRandomByAk() performs a random search organized around the
+ * searchLoopRandomByAk performs a random search organized around the
  * last multiplier a_k. It first draws values of a_k at random and
  * retains only those that satisfy the maximal-period requirement, if this
  * requirement is chosen by the user.
@@ -497,7 +497,7 @@ void SearchMRG<Int, Real>::searchLoopRandomByAk(IntLattice<Int, Real>* proj, int
 
 
 /**
- * searchLoopRandomByAkBox() performs a hybrid random-box search organized
+ * searchLoopRandomByAkBox performs a hybrid random-box search organized
  * around the las mulitpiliers a_k. It first draws values of a_k at
  * random and retains only those that satisfy the maximal-period requirement, if
  * wanted by the user.
@@ -556,10 +556,10 @@ void SearchMRG<Int, Real>::searchLoopRandomByAkBox(IntLattice<Int, Real>* proj, 
 //===========================================================================
 
 /**
- * searchLoopRandomBox() searches randomly selected boxes within the 
+ * searchLoopRandomBox searches randomly selected boxes within the 
  * coefficient bounds. For each box, the function draws a lower corner for every coefficient,
  * including a_k. Its upper corner is determined by the configured
- * subregion sizes. searchLoopBox() then enumerates the box exhaustively,
+ * subregion sizes. searchLoopBox then enumerates the box exhaustively,
  * testing the maximal-period condition once per distinct a_k in that box.
  * 
  * The search stops when all requested boxes have been visited or a
@@ -955,10 +955,8 @@ template<typename Int, typename Real> bool SearchMRG<Int, Real>::checkMaxPeriod(
 template<typename Int, typename Real> void SearchMRG<Int, Real>::prepareEqualityGroups()
 {
     const int k = this->order;
-
     if (!equalityGroups.empty() && equalityGroups.size() != static_cast<std::size_t>(k))
         throw std::invalid_argument("One equality-group label is required per coefficient");
-
     numEqualityGroups = 0;
     groupLow.SetLength(k + 1);
     groupHigh.SetLength(k + 1);
@@ -981,7 +979,6 @@ template<typename Int, typename Real> void SearchMRG<Int, Real>::prepareEquality
                 groupHigh[group] = highBoundaries[i];
         }
     }
-
     for (int group = 1; group <= numEqualityGroups; ++group) {
         if (!seen[group] || groupLow[group] > groupHigh[group])
             throw std::invalid_argument(
